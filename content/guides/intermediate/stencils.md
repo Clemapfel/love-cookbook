@@ -14,7 +14,9 @@ This chapter will go over **stencils**, which open up a number of advanced drawi
 
 # 0. TL;DR: Quick Start
 
-For those with not enough time on hand to read this entire chapter, or people returning for reference purposes, below are example usages of the stencil-related functions in LÖVE 12. It is expected that first-time readers will not understand what is going on in these examples, as the rest of this chapter will build the knowledge needed to fully understand them.
+For those with not enough time on hand to read this entire chapter, or people returning for reference purposes, below are example usages of the stencil-related functions in LÖVE 12. 
+
+**It is expected that first-time readers will not understand what is going on in these examples**, as the rest of this chapter will build the knowledge needed to fully understand them.
 
 ## 0.1 `setStencilMode` Example
 
@@ -93,27 +95,35 @@ love.graphics.clear(
 )
 ```
 
-## 0.4 Binding a Canvas with a Stencil Buffer
+## 0.4 Binding a Canvas with Stencils Active
 
 ```lua
-local canvas = love.graphics.newCanvas(100, 100, {
+-- create a canvas
+local canvas = love.graphics.newTexture(100, 100, {
+    canvas = true
+})
+
+-- bind the canvas with stenciling enabled
+love.graphics.setCanvas({
+    canvas,
     stencil = true
 })
 
+-- draw here, stencils will work as expected
 
+-- unbind the canvas
+love.graphics.setCanvas(nil)
 ```
 
 For those still with us, let's begin our exploration of stencils.
 
 ## 1. Stencil Buffer
 
-The main window (or currently bound canvas) will have what is called a **stencil buffer**. This is a special kind of texture that holds, on the graphics card, an unsigned integer value in `[0, 255)` for every pixel. Writing to the stencil buffer works the same as with the window or any canvas; when a draw command such as `love.graphics.draw` or `love.graphics.circle` is called, the object drawn will modify every pixel it touches. For normal textures, this modifies the rgba values and thus the color of that pixel when the window is drawn. Stencil buffers work the same way, we draw using a regular draw command, and any pixel that object touches will have a new value written to it. Instead of a color, it is the above mention unsigned integer.
-
-We will see soon how to achieve this, first we need to go over what stencils are used for.
+The main window (or currently bound canvas) will have what is called a **stencil buffer**. This is a special kind of texture that holds, on the graphics card, an unsigned integer value in `[0, 255)` for every pixel. Writing to the stencil buffer works the same as with the window or any canvas; when a draw command such as `love.graphics.draw` or `love.graphics.circle` is called, the object drawn will modify every pixel it touches. For normal textures, this modifies the rgba values and thus the color of that pixel when the window is drawn. Stencil buffers work the same way, we draw using a regular draw command, and any pixel that object touches will have a new value written to it. Instead of a color, it is the above mentioned unsigned integer.
 
 ## 2. Stencil Compare Modes & Culling
 
-The main use for stencils is controlling whether or not a draw command (such as `love.graphics.draw` or `love.graphics.circle`) will **actually modify current window or canvas**. Internally, love keeps a global value which is called the **stencil compare mode**. When a pixel is drawn, love will compare the value of the stencil buffer at that position using this compare mode, and if this operations returns true, the pixel will be drawn. If it returns false, **no pixel will be draw**, the window or canvas will **not** have it's color at that position changed. This is why stencils are very powerful, much like a real-life stencil, it allows use to cut out certain parts of a drawable object, preventing only that part to be drawn, without the use of any additional geometry.
+The main use for stencils is controlling whether or not a draw command (such as `love.graphics.draw` or `love.graphics.circle`) will **actually modify current window or canvas**. Internally, love keeps a global value which is called the **stencil compare mode**. When a pixel is drawn, love will compare the value of the stencil buffer at that position using this compare mode, and if this operations returns true, the pixel will be drawn to. If it returns false, **the pixel will not be modified**, the window or canvas will **not** have it's color at that position changed. This is why stencils are very powerful, much like a real-life stencil, it allows use to cut out certain parts of a drawable object, preventing only that part to be drawn, without the use of any additional geometry.
 
 In love 12, there are two kinds of stencil-related API functions, `setStencilMode` is the more user-friendly option, it is great for simple operations, but is limited in some way. In more advanced applications, we can use `setStencilState`.
 
@@ -129,13 +139,13 @@ love.graphics.setStencilMode(mode, value)
 
 `mode` is of type `love.graphics.StencilMode`, which is an enum with the following values
 
-+ `off` disable stenciling
-+ `draw` enable drawing to the stencil buffer
-+ `test` enable testing against the stencil buffer
++ `"off"` disable stenciling
++ `"draw"` enable drawing to the stencil buffer
++ `"test"` enable testing against the stencil buffer
 
-If no mode is specified, the argument will default to `off`,
+If no mode is specified, the argument will default to `"off"`,
 
-`value` is an integer in `[0, 255)`. If a float is given, it will round down to the nearest integer. Make sure to not specify values outside this range, while this does not cause an error, it will be clamped back into `[0, 255]`, which could cause unexpected behavior.
+`value` is an unsigned integer in `[0, 255)`. If a float is given, it will round down to the nearest integer. We need to make sure ourselves to **not specify values outside this range**, as setting the stencil value to, for example, `2045.23` will not cause an error, what exact value will be drawn to the stencil buffer in this case is determinstic but logically opaque and should thus be avoided.
 
 ### 3.1 Usage
 
@@ -143,20 +153,20 @@ Usage of `setStencilMode` will often have the following pattern
 
 ```lua
 
--- [1] choose a stencil value in 0, 255
+-- (1) choose a stencil value in 0, 255
 local stencil_value = 123
 
--- [2] enable drawing to the stencil buffer
+-- (2) enable drawing to the stencil buffer
 love.graphics.setStencilMode("draw", stencil_value)
 
--- any draw code here, eg. love.graphics.draw(*), love.graphics.circle, etc.
+-- any draw code here, eg. love.graphics.draw, love.graphics.circle, etc.
 
--- [3] enable testing against the stencil buffer
+-- (3) enable testing against the stencil buffer
 love.graphics.setStencilMode("test", stencil_value)
 
 -- more draw code here
 
--- [4] disable stencil testing
+-- (4) disable stencil testing
 love.graphics.setStencilMode("off")
 ```
 
