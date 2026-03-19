@@ -110,7 +110,7 @@ While the drag-and-drop approach is quick, the terminal version will be faster d
 
 If all is successful a window will launch showing a black screen instead of the 'No Game' screen, and you'll see 'Hello LÖVE!' printed in the terminal you ran it from.
 
-<img src="/assets/img/love/blank_screen.png" width="800">
+<img src="/assets/img/love/blank_screen.png">
 
 Now you're ready to start learning Lua and LÖVE!
 
@@ -121,7 +121,7 @@ At the time of writing, the latest released version of LÖVE is 11.5 (Mysterious
 If you're interested in trying out the new version, you can get the nightly builds from Github, head to the LÖVE repo and go to the actions tab:  
 [https://github.com/love2d/love/actions](https://github.com/love2d/love/actions)
 
-<img src="/assets/img/love/12_actions.png" width="800">
+<img src="/assets/img/love/12_actions.png">
 
 Any time that new commits are made to LÖVE's source a new build is generated, so you can pick any of the recent successful actions.   
 Click on the successful workflow action and scroll down the page to find the actual zip files to download.
