@@ -24,8 +24,8 @@ This chapter will go over **stencils**, which open up a number of advanced drawi
     - [3.1 Usage](#31-usage)
         - [3.1.1 Choosing a Stencil Value (1)](#311-choosing-a-stencil-value-1)
         - [3.1.2 Enabling Stencil Draw (2)](#312-enabling-stencil-draw-2)
-        - [3.1.3 Enabling Stencil Test (3)](#313-enabling-stencil-testing-3)
-        - [3.1.4 Disabling Stencil Tests (4)](#314-disabling-stencil-tests-4)
+        - [3.1.3 Enabling Stencil Testing (3)](#313-enabling-stencil-testing-3)
+        - [3.1.4 Disabling Stencil Testing (4)](#314-disabling-stencil-testing-4)
     - [3.2 A Working Example](#32-a-working-example)
 - [4. `setStencilState`](#4-setstencilstate)
     - [4.1 Signature](#41-signature)
@@ -209,7 +209,7 @@ With `setStencilMode("draw")`, we are telling LÖVE that from now on, all draws 
 
 Now that we have modified the stencil buffer, we can tell LÖVE to enter the **compare phase**, which we mentioned earlier. From this point onwards, LÖVE will perform the following calculation: for a pixel at `(x, y)`, get the current stencil value at `(x, y)` from the stencil buffer. **If this value equals `stencil_value`, perform the draw as usual; otherwise, discard it**. This is true for every pixel on the screen, not just the ones we wrote to earlier.
 
-#### 3.1.4 Disabling Stencil Tests (4)
+#### 3.1.4 Disabling Stencil Testing (4)
 
 After drawing with stencil testing enabled is done, we need to manually disable stencil testing. To do this, we simply call `love.graphics.setStencilMode("off")`.
 
