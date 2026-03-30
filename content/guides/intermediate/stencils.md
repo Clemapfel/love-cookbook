@@ -486,387 +486,378 @@ Below is a full `main.lua` for a game of "shoot the target", with stencils being
 ```lua
 local score = 0
 local field = nil
-local reinitialize_field, check_success, draw_field_below, draw_field_above, update_field
+local reinitializeField, checkSuccess, drawFieldBelow, drawFieldAbove, updateField
 
 love.draw = function()
-    draw_field_below()
-    local x, y = love.mouse.getPosition()
+  drawFieldBelow()
+  local x, y = love.mouse.getPosition()
 
-    -- clear the stencil buffer
-    love.graphics.clear(false, true, false)
+  love.graphics.clear(false, true, false)
 
-    -- choose a stencil value
-    local stencilValue = 123
+  local stencilValue = 123
 
-    -- make it so we are now drawing to the stencil buffer
-    love.graphics.setStencilState("replace", "always", stencilValue)
-    love.graphics.setColorMask(false, false, false, false)
+  love.graphics.setStencilState("replace", "always", stencilValue)
+  love.graphics.setColorMask(false, false, false, false)
 
-    -- set circular area in buffer to `stencilValue`
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.circle("fill", x, y, field.crosshair.radius)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.circle("fill", x, y, field.crosshair.radius)
 
-    -- make it so we are now testing against the stencil buffer
-    love.graphics.setStencilState("keep", "notequal", stencilValue)
-    love.graphics.setColorMask(true, true, true, true)
+  love.graphics.setStencilState("keep", "notequal", stencilValue)
+  love.graphics.setColorMask(true, true, true, true)
 
-    -- black the entire screen; the stencil area will be excluded because of `notequal`
-    love.graphics.setColor(0, 0, 0, 1)
-    love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
+  love.graphics.setColor(0, 0, 0, 1)
+  love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
 
-    -- reset: neither write to the stencil buffer nor test against it
-    love.graphics.setStencilState("keep", "always", nil)
-    love.graphics.setColorMask(true, true, true, true)
+  love.graphics.setStencilState("keep", "always", nil)
+  love.graphics.setColorMask(true, true, true, true)
 
-    draw_field_above()
+  drawFieldAbove()
 end
 
---- ### game logic ### ---
-
 love.update = function(delta)
-    update_field(delta)
+  updateField(delta)
 end
 
 love.mousepressed = function(_)
-    check_success()
+  checkSuccess()
 end
 
 love.keypressed = function(_)
-    check_success()
+  checkSuccess()
 end
 
 love.load = function()
-    reinitialize_field()
-    love.mouse.setVisible(false)
+  reinitializeField()
+  love.mouse.setVisible(false)
 end
 
 love.resize = function(w, h)
-    reinitialize_field()
+  reinitializeField()
 end
 
-reinitialize_field = function()
-    field = {
-        circles = {},
-        target = {},
+reinitializeField = function()
+  field = {
+    circles = {},
+    target = {},
 
-        crosshair = {
-            x = love.mouse.getX(),
-            y = love.mouse.getY(),
-            radius = 0,
-            top = {},
-            bottom = {},
-            right = {},
-            left = {}
-        },
+    crosshair = {
+      x = love.mouse.getX(),
+      y = love.mouse.getY(),
+      radius = 0,
+      top = {},
+      bottom = {},
+      right = {},
+      left = {}
+    },
 
-        reveal_elapsed = 0,
-        reveal_duration = 1,
+    revealElapsed = 0,
+    revealDuration = 1,
 
-        cooldown_elapsed = 0,
-        cooldown_duration = 2,
+    cooldownElapsed = 0,
+    cooldownDuration = 2,
 
-        found_message_x = 0,
-        found_message_y = 0,
+    foundMessageX = 0,
+    foundMessageY = 0,
 
-        title_x = 0,
-        title_y = 0,
+    titleX = 0,
+    titleY = 0,
 
-        score_x = 0,
-        score_y = 0,
+    scoreX = 0,
+    scoreY = 0,
 
-        font = love.graphics.getFont(),
+    font = love.graphics.getFont(),
 
-        elapsed = 0
-    }
+    elapsed = 0
+  }
 
-    local screen_w, screen_h = love.graphics.getDimensions()
+  local screenW, screenH = love.graphics.getDimensions()
 
-    local min_radius = 7
-    local max_radius = 21
+  local minRadius = 7
+  local maxRadius = 21
 
-    local spotlight_radius = 128
+  local spotlightRadius = 128
 
-    local target_hue = 0.14
-    local min_hue = 0.45
-    local max_hue = 0.85
+  local targetHue = 0.14
+  local minHue = 0.45
+  local maxHue = 0.85
 
-    local min_home_radius = 40
-    local max_home_radius = 120
-    local min_velocity = 0
-    local max_velocity = 20
+  local minHomeRadius = 40
+  local maxHomeRadius = 120
+  local minVelocity = 0
+  local maxVelocity = 20
 
-    local cell_size = 64
-    local min_per_cell = 1
-    local max_per_cell = 7
+  local cellSize = 64
+  local minPerCell = 1
+  local maxPerCell = 7
 
-    local random = function(lower, upper)
-        local ratio = love.math.random()
-        return lower * (1 - ratio) + upper * ratio
-    end
+  local random = function(lower, upper)
+    local ratio = love.math.random()
+    return lower * (1 - ratio) + upper * ratio
+  end
 
-    local function hsva_to_rgba(h, s, v, a)
-        h = h * 360
+  local function hsvaToRgba(h, s, v, a)
+    h = h * 360
 
-        local c = v * s
-        local h_2 = h / 60.0
-        local x = c * (1 - math.abs(math.fmod(h_2, 2) - 1))
+    local c = v * s
+    local h2 = h / 60.0
+    local x = c * (1 - math.abs(math.fmod(h2, 2) - 1))
 
-        local r, g, b
+    local r, g, b
 
-        if (0 <= h_2 and h_2 < 1) then
-            r, g, b = c, x, 0
-        elseif (1 <= h_2 and h_2 < 2) then
-            r, g, b  = x, c, 0
-        elseif (2 <= h_2 and h_2 < 3) then
-            r, g, b  = 0, c, x
-        elseif (3 <= h_2 and h_2 < 4) then
-            r, g, b  = 0, x, c
-        elseif (4 <= h_2 and h_2 < 5) then
-            r, g, b  = x, 0, c
-        else
-            r, g, b  = c, 0, x
-        end
-
-        local m = v - c
-
-        r = r + m
-        g = g + m
-        b = b + m
-
-        return r, g, b, a
-    end
-
-    field.target_text_color = { hsva_to_rgba(target_hue, 1, 1, 1) }
-
-    field.circles = {}
-
-    local new_circle = function(x, y, radius, hue)
-        return {
-            x = x,
-            y = y,
-            home_x = x,
-            home_y = y,
-            radius = radius,
-            noise_offset = random(-10e6, 10e6),
-            velocity = random(min_velocity, max_velocity),
-            home_radius = random(min_home_radius, max_home_radius),
-            color = { hsva_to_rgba(hue, 1, 1, 1) }
-        }
-    end
-
-    local n_rows = math.ceil(screen_w / cell_size)
-    local n_columns = math.ceil(screen_h / cell_size)
-
-    for row_i = 1, n_rows do
-        for col_i = 1, n_columns do
-            local n_per_cell = love.math.random(min_per_cell, max_per_cell)
-            for i = 1, n_per_cell do
-                local x = random(
-                    (row_i - 1) * cell_size,
-                    (row_i - 0) * cell_size
-                )
-
-                local y = random(
-                    (col_i - 1) * cell_size,
-                    (col_i - 0) * cell_size
-                )
-
-                local radius = random(min_radius, max_radius)
-                local hue = random(min_hue, max_hue)
-
-                table.insert(field.circles, new_circle(
-                    x, y, radius, hue
-                ))
-            end
-        end
-    end
-
-    local target_radius = random(min_radius, max_radius)
-
-    local target_min_x = 0 + 2 * target_radius
-    local target_max_x = screen_w - 2 * target_radius
-
-    local target_min_y = 0 + 2 * target_radius
-    local target_max_y = screen_h - 2 * target_radius
-
-    local target_x = random(target_min_x, target_max_x)
-    local target_y = random(target_min_y, target_max_y)
-
-    field.target = new_circle(
-        target_x,
-        target_y,
-        target_radius,
-        target_hue
-    )
-    field.target.home_radius = max_home_radius
-
-    field.crosshair.radius = spotlight_radius
-
-    field.crosshair.left = {
-        0 - field.target.radius, 0,
-        0 - field.crosshair.radius, 0
-    }
-
-    field.crosshair.right = {
-        0 + field.target.radius, 0,
-        0 + field.crosshair.radius, 0
-    }
-
-    field.crosshair.top = {
-        0, 0 - field.target.radius,
-        0, 0 - field.crosshair.radius
-    }
-
-    field.crosshair.bottom = {
-        0, 0 + field.target.radius,
-        0, 0 + field.crosshair.radius
-    }
-
-    local font = love.graphics.newFont(40)
-    local font_height = font:getHeight()
-
-    field.shoot_the_text = "shoot the "
-    field.target_text = "target"
-    field.score_text = "score: "
-
-    local margin = 20
-
-    local title_width = font:getWidth(field.shoot_the_text) + font:getWidth(field.target_text)
-    field.title_x = math.floor((screen_w - title_width) / 2)
-    field.title_y = margin
-    field.title_width = font:getWidth(field.shoot_the_text)
-
-    field.score_text_x = margin
-    field.score_text_y = math.floor(screen_h - font_height - margin)
-
-    field.font = font
-end
-
-function draw_field_below()
-    if field.cooldown_elapsed > 0 then
-        love.graphics.clear(1, 0, 0, 1)
+    if (0 <= h2 and h2 < 1) then
+      r, g, b = c, x, 0
+    elseif (1 <= h2 and h2 < 2) then
+      r, g, b  = x, c, 0
+    elseif (2 <= h2 and h2 < 3) then
+      r, g, b  = 0, c, x
+    elseif (3 <= h2 and h2 < 4) then
+      r, g, b  = 0, x, c
+    elseif (4 <= h2 and h2 < 5) then
+      r, g, b  = x, 0, c
     else
-        love.graphics.clear(0.5, 0.5, 0.5, 1)
+      r, g, b  = c, 0, x
     end
 
-    love.graphics.setLineWidth(2)
-    love.graphics.setLineStyle("smooth")
+    local m = v - c
 
-    local draw_circle = function(entry)
-        love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.circle("line", entry.x, entry.y, entry.radius + 1)
+    r = r + m
+    g = g + m
+    b = b + m
 
-        love.graphics.setColor(entry.color)
-        love.graphics.circle("fill", entry.x, entry.y, entry.radius)
-    end
+    return r, g, b, a
+  end
 
-    if field.cooldown_elapsed <= 0 then
-        for _, entry in ipairs(field.circles) do
-            draw_circle(entry)
-        end
-    end
+  field.targetTextColor = { hsvaToRgba(targetHue, 1, 1, 1) }
 
-    draw_circle(field.target)
-end
+  field.circles = {}
 
-function draw_field_above()
-    local x, y = love.mouse.getPosition()
-
-    local line_width = 5
-    love.graphics.push()
-    love.graphics.translate(x, y)
-    love.graphics.setColor(0, 0, 0, 1)
-    love.graphics.setLineWidth(line_width)
-    love.graphics.line(field.crosshair.top)
-    love.graphics.line(field.crosshair.right)
-    love.graphics.line(field.crosshair.bottom)
-    love.graphics.line(field.crosshair.left)
-    love.graphics.pop()
-
-    love.graphics.setColor(1, 0, 0, 1)
-    love.graphics.circle("fill", x, y, line_width)
-
-    love.graphics.setFont(field.font)
-
-    local offsets = {
-        { -1, -1 },
-        {  0, -1 },
-        {  1, -1 },
-        { -1,  0 },
-        {  1,  0 },
-        { -1,  1 },
-        {  0,  1 },
-        {  1,  1 },
+  local newCircle = function(x, y, radius, hue)
+    return {
+      x = x,
+      y = y,
+      homeX = x,
+      homeY = y,
+      radius = radius,
+      noiseOffset = random(-10e6, 10e6),
+      velocity = random(minVelocity, maxVelocity),
+      homeRadius = random(minHomeRadius, maxHomeRadius),
+      color = { hsvaToRgba(hue, 1, 1, 1) }
     }
+  end
 
+  local nRows = math.ceil(screenW / cellSize)
+  local nColumns = math.ceil(screenH / cellSize)
+
+  for rowI = 1, nRows do
+    for colI = 1, nColumns do
+      local nPerCell = love.math.random(minPerCell, maxPerCell)
+      for i = 1, nPerCell do
+        local x = random(
+          (rowI - 1) * cellSize,
+          (rowI - 0) * cellSize
+        )
+
+        local y = random(
+          (colI - 1) * cellSize,
+          (colI - 0) * cellSize
+        )
+
+        local radius = random(minRadius, maxRadius)
+        local hue = random(minHue, maxHue)
+
+        table.insert(field.circles, newCircle(
+          x, y, radius, hue
+        ))
+      end
+    end
+  end
+
+  local targetRadius = random(minRadius, maxRadius)
+
+  local targetMinX = 0 + 2 * targetRadius
+  local targetMaxX = screenW - 2 * targetRadius
+
+  local targetMinY = 0 + 2 * targetRadius
+  local targetMaxY = screenH - 2 * targetRadius
+
+  local targetX = random(targetMinX, targetMaxX)
+  local targetY = random(targetMinY, targetMaxY)
+
+  field.target = newCircle(
+    targetX,
+    targetY,
+    targetRadius,
+    targetHue
+  )
+  field.target.homeRadius = maxHomeRadius
+
+  field.crosshair.radius = spotlightRadius
+
+  field.crosshair.left = {
+    0 - field.target.radius, 0,
+    0 - field.crosshair.radius, 0
+  }
+
+  field.crosshair.right = {
+    0 + field.target.radius, 0,
+    0 + field.crosshair.radius, 0
+  }
+
+  field.crosshair.top = {
+    0, 0 - field.target.radius,
+    0, 0 - field.crosshair.radius
+  }
+
+  field.crosshair.bottom = {
+    0, 0 + field.target.radius,
+    0, 0 + field.crosshair.radius
+  }
+
+  local font = love.graphics.newFont(40)
+  local fontHeight = font:getHeight()
+
+  field.shootTheText = "shoot the "
+  field.targetText = "target"
+  field.scoreText = "score: "
+
+  local margin = 20
+
+  local titleWidth = font:getWidth(field.shootTheText) + font:getWidth(field.targetText)
+  field.titleX = math.floor((screenW - titleWidth) / 2)
+  field.titleY = margin
+  field.titleWidth = font:getWidth(field.shootTheText)
+
+  field.scoreTextX = margin
+  field.scoreTextY = math.floor(screenH - fontHeight - margin)
+
+  field.font = font
+end
+
+function drawFieldBelow()
+  if field.cooldownElapsed > 0 then
+    love.graphics.clear(1, 0, 0, 1)
+  else
+    love.graphics.clear(0.5, 0.5, 0.5, 1)
+  end
+
+  love.graphics.setLineWidth(2)
+  love.graphics.setLineStyle("smooth")
+
+  local drawCircle = function(entry)
     love.graphics.setColor(0, 0, 0, 1)
-    for _, offset in ipairs(offsets) do
-        love.graphics.push()
-        love.graphics.translate(math.floor(2 * offset[1]), math.floor(2 * offset[2]))
-        love.graphics.print(field.shoot_the_text, field.title_x, field.title_y)
-        love.graphics.print(field.target_text, field.title_x + field.title_width, field.title_y)
-        love.graphics.print(field.score_text .. score, field.score_text_x, field.score_text_y)
-        love.graphics.pop()
+    love.graphics.circle("line", entry.x, entry.y, entry.radius + 1)
+
+    love.graphics.setColor(entry.color)
+    love.graphics.circle("fill", entry.x, entry.y, entry.radius)
+  end
+
+  if field.cooldownElapsed <= 0 then
+    for _, entry in ipairs(field.circles) do
+      drawCircle(entry)
     end
+  end
 
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print(field.shoot_the_text, field.title_x, field.title_y)
-
-    love.graphics.setColor(field.target_text_color)
-    love.graphics.print(field.target_text, field.title_x + field.title_width, field.title_y)
-
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print(field.score_text .. score, field.score_text_x, field.score_text_y)
+  drawCircle(field.target)
 end
 
-function check_success()
-    local x, y = love.mouse.getPosition()
-    local distance_squared = (x - field.target.x)^2 + (y - field.target.y)^2
-    if distance_squared < field.target.radius^2 then
-        if field.cooldown_elapsed <= 0 then
-            score = score + 1
-            field.cooldown_elapsed = field.cooldown_duration
-        end
-    end
+function drawFieldAbove()
+  local x, y = love.mouse.getPosition()
+
+  local lineWidth = 5
+  love.graphics.push()
+  love.graphics.translate(x, y)
+  love.graphics.setColor(0, 0, 0, 1)
+  love.graphics.setLineWidth(lineWidth)
+  love.graphics.line(field.crosshair.top)
+  love.graphics.line(field.crosshair.right)
+  love.graphics.line(field.crosshair.bottom)
+  love.graphics.line(field.crosshair.left)
+  love.graphics.pop()
+
+  love.graphics.setColor(1, 0, 0, 1)
+  love.graphics.circle("fill", x, y, lineWidth)
+
+  love.graphics.setFont(field.font)
+
+  local offsets = {
+    { -1, -1 },
+    {  0, -1 },
+    {  1, -1 },
+    { -1,  0 },
+    {  1,  0 },
+    { -1,  1 },
+    {  0,  1 },
+    {  1,  1 },
+  }
+
+  love.graphics.setColor(0, 0, 0, 1)
+  for _, offset in ipairs(offsets) do
+    love.graphics.push()
+    love.graphics.translate(math.floor(2 * offset[1]), math.floor(2 * offset[2]))
+    love.graphics.print(field.shootTheText, field.titleX, field.titleY)
+    love.graphics.print(field.targetText, field.titleX + field.titleWidth, field.titleY)
+    love.graphics.print(field.scoreText .. score, field.scoreTextX, field.scoreTextY)
+    love.graphics.pop()
+  end
+
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.print(field.shootTheText, field.titleX, field.titleY)
+
+  love.graphics.setColor(field.targetTextColor)
+  love.graphics.print(field.targetText, field.titleX + field.titleWidth, field.titleY)
+
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.print(field.scoreText .. score, field.scoreTextX, field.scoreTextY)
 end
 
-function update_field(delta)
-    field.elapsed = field.elapsed + delta
-
-    local before = field.cooldown_elapsed
-    field.cooldown_elapsed = field.cooldown_elapsed - delta
-
-    if before > 0 and field.cooldown_elapsed <= 0 then
-        reinitialize_field()
+function checkSuccess()
+  local x, y = love.mouse.getPosition()
+  local distanceSquared = (x - field.target.x)^2 + (y - field.target.y)^2
+  if distanceSquared < field.target.radius^2 then
+    if field.cooldownElapsed <= 0 then
+      score = score + 1
+      field.cooldownElapsed = field.cooldownDuration
     end
+  end
+end
 
-    if field.cooldown_elapsed >= 0 then return end
+function updateField(delta)
+  field.elapsed = field.elapsed + delta
 
-    local min_x, min_y = 0, 0
-    local max_x, max_y = love.graphics.getWidth(), love.graphics.getHeight()
+  local before = field.cooldownElapsed
+  field.cooldownElapsed = field.cooldownElapsed - delta
 
-    local update_circle = function(circle, offset)
-        local t = field.elapsed + circle.noise_offset
+  if before > 0 and field.cooldownElapsed <= 0 then
+    reinitializeField()
+  end
 
-        local x_noise = (love.math.perlinNoise(t + offset * 0.3 - 100) * 2) - 1
-        local y_noise = (love.math.perlinNoise(t + offset * 0.3 + 100) * 2) - 1
+  if field.cooldownElapsed >= 0 then return end
 
-        local target_x = circle.home_x + x_noise * circle.home_radius
-        local target_y = circle.home_y + y_noise * circle.home_radius
+  local minX, minY = 0, 0
+  local maxX, maxY = love.graphics.getWidth(), love.graphics.getHeight()
 
-        circle.x = circle.x + (target_x - circle.x) * delta * circle.velocity
-        circle.y = circle.y + (target_y - circle.y) * delta * circle.velocity
+  local updateCircle = function(circle, offset)
+    local t = field.elapsed + circle.noiseOffset
 
-        circle.x = math.max(circle.x, min_x + circle.radius)
-        circle.x = math.min(circle.x, max_x - circle.radius)
-        circle.y = math.max(circle.y, min_x + circle.radius)
-        circle.y = math.min(circle.y, max_x - circle.radius)
-    end
+    local xNoise = (love.math.perlinNoise(t + offset * 0.3 - 100) * 2) - 1
+    local yNoise = (love.math.perlinNoise(t + offset * 0.3 + 100) * 2) - 1
 
-    for i, circle in ipairs(field.circles) do
-        update_circle(circle, i)
-    end
+    local targetX = circle.homeX + xNoise * circle.homeRadius
+    local targetY = circle.homeY + yNoise * circle.homeRadius
 
-    update_circle(field.target, 0)
+    circle.x = circle.x + (targetX - circle.x) * delta * circle.velocity
+    circle.y = circle.y + (targetY - circle.y) * delta * circle.velocity
+
+    circle.x = math.max(circle.x, minX + circle.radius)
+    circle.x = math.min(circle.x, maxX - circle.radius)
+    circle.y = math.max(circle.y, minX + circle.radius)
+    circle.y = math.min(circle.y, maxX - circle.radius)
+  end
+
+  for i, circle in ipairs(field.circles) do
+    updateCircle(circle, i)
+  end
+
+  updateCircle(field.target, 0)
 end
 ```
