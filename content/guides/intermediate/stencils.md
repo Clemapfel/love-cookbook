@@ -296,8 +296,8 @@ love.graphics.setColorMask(
 
 It can have one of the following values, where `current` is the value currently in the stencil buffer at the given position, `v` is the value given as the third argument to `setStencilState`, and `new` is the value the stencil buffer will have after modification.
 
-| `StencilAction` | Behavior | Equation |
-|-----------------|----------|----------|
+| StencilAction | Behavior | Equation |
+|---------------|----------|----------|
 | `"keep"` | do not modify the stencil buffer | `new = current` |
 | `"zero"` | replace the stencil buffer value with `0` | `new = 0` |
 | `"replace"` | replace the stencil buffer value with `v` | `new = v` |
@@ -318,8 +318,8 @@ With these actions, we have a breadth of ways to change how exactly the stencil 
 The second argument of `setStencilState` governs what formula is used **to determine whether to draw or discard a pixel depending on the stencil buffer value** at that position. Recall that for `setStencilMode`, only pixels for which the stencil buffer value was **equal to** the second argument of `setStencilMode` will be drawn. `setStencilState` gives us more options than just equality, where, again, `current` is the value currently in the stencil buffer at the pixel's position and `v` is the third argument given to `setStencilState`:
 
 
-| `StencilCompareMode` | Behavior | Equation |
-|----------------------|----------|----------|
+| StencilCompareMode | Behavior | Equation |
+|--------------------|----------|----------|
 | `"always"` | always drawn | `true` |
 | `"never"` | never drawn | `false` |
 | `"equal"` | drawn if stencil buffer value equals `v` | `current == v` |
