@@ -9,7 +9,7 @@ date: 2025-02-19
 > [!CAUTION]
 > This guide is made for LÖVE 12.0! These stencil functions are not available in prior versions.
 
-This chapter will go over **stencils**, which open up a number of advanced drawing techniques which would be very hard to achieve otherwise.
+This chapter will go over **stencils**, which open up a number of advanced drawing techniques. Stencils allow us to only draw (or not draw) certain parts of a shape or texture to the window or active canvas. Similar to real-world stencils, they let us "cut out" only parts of an image, an effect that would be very hard to achieve otherwise.
 
 # 0. TL;DR: Quick Start
 
