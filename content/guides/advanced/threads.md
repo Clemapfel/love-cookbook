@@ -548,7 +548,7 @@ local MessageType = {
         type : MessageType,
         id : Number -- unique thread id
         path : String
-        data : ImageData / SoundData
+        data : love.SoundData
     ]],
     
     -- worker -> main: error occurred during loading
@@ -605,7 +605,7 @@ local ThreadPool = {}
 
 --- @brief create a new thread pool
 --- @param count number number of threads, optional
-function ThreadPool:new(count)
+function ThreadPool.new(count)
     if count == nil then
         -- if not specified, use as many threads as the user has cores
         count = math.max(1, love.system.getProcessorCount() - 1 )
@@ -661,10 +661,18 @@ end
 
 --- @brief
 --- @param path string full path to data file
+--- @param clear boolean whether the threadpool should release the reference to the data
 --- @return love.Data? may be nil if data is not yet read
-function ThreadPool:get(path)
+function ThreadPool:get(path, clear)
     assert(type(path) == "string", "In ThreadPool.get: for argument #1: string expected")
-    return self.data[path] -- may be nil if not yet ready
+    local data = self.data[path] -- may be nil
+
+    -- if data is ready and `clear` is set, release reference to the data
+    if data ~= nil and clear == true then
+        self.data[path] = nil
+    end
+  
+    return data -- return data, or nil if not ready
 end
 
 --- @brief work through all received messages this frame
@@ -690,6 +698,16 @@ function ThreadPool:update()
             -- else, message was not a table
             error("In ThreadPool.update: unhandled message: message is not a table")
         end
+    end
+end
+
+--- @brief request irreversible shutdown of all workers
+function ThreadPool:shutdown()
+    -- push n shutdown messages, one for each thread
+    for _ in ipairs(self.threads) do
+        self.main2worker:push({
+            type = MessageType.SHUTDOWN
+        })
     end
 end
 
@@ -738,8 +756,8 @@ while not shutdownActive do
                 })
             end
         elseif message.type == MessageType.SHUTDOWN then
-            -- thread pool requested shutdown
-            shutdownActive = true
+             -- enter shutdown mode
+             shutdownActive = true
         else
             -- unhandled message type, respond with error
             worker2main:push({
@@ -846,7 +864,7 @@ channel:performAtomic(callback, sharedObject)
 -- allocate shared memory
 local shared = ffi.new("uint8_t[?]", 1024)
 
--- send pointer as integer, ffi objects are disallowed
+-- send pointer as integer (ffi objects are disallowed)
 main2worker:send(tonumber(ffi.cast("uint32_t", shared)))
 
 -- main can modify memory (race conditions apply, may crash)
@@ -862,7 +880,7 @@ local shared = ffi.cast("uint8_t[?]", main2worker:demand())
 shared[12] = 0x5
 ```
 
-The same can be achieved more safely with LÖVE 12.0's new `ByteData` interface, where `ByteData` is a `love.Object` and can thus be passed by-reference between threads using a channel.
+The same can also be achieved with LÖVE 12.0's new `ByteData` interface, where `ByteData` is a `love.Object` and can thus be passed by-reference between threads using a channel.
 
 ```lua
 -- using luajit ffi
