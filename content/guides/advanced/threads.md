@@ -19,7 +19,7 @@ In this chapter, we'll learn how to use **`love.Thread`**. This is not a guide o
 - [2.2 Allowed Data Types](#22-allowed-data-types)
 - [3.0 A Practical Example](#30-a-practical-example)
 - [4.0 Addendum](#40-addendum)
-    - [4.1 Using a Channel as Semaphore](#41-using-a-channel-as-semaphore)
+    - [4.1 Using a Channel as a Mutex](#41-using-a-channel-as-a-mutex)
     - [4.2 Sharing FFI Memory](#42-sharing-ffi-memory)
 
 Lua natively does not support threading at all. Despite this, the LÖVE authors have implemented threads, which can be vital for modern game engines, though they come with heavy restrictions when compared to languages such as [C++](<https://cppreference.com/>) or [Julia](<https://docs.julialang.org/en/v1/>). In return, however, using (and learning to use) LÖVE threads is a much simpler topic than in those languages, allowing users with very little or no experience in parallel programming to still achieve relevant performance gains in their games.
@@ -810,13 +810,14 @@ Asynchronous programming is an incredibly deep topic, so hopefully we'll have ga
 > [!CAUTION]
 > The following is for advanced users only, which already know asynchronous programming. It will make no attempts to not be technical.
 
-### 4.1 Using a Channel as Semaphore
+### 4.1 Using a Channel as a Mutex
 
 ```lua
--- in main or worker, we can synchronize for a single function invocation by using a channel like a RAII-style semaphore
+-- in main or worker, we can synchronize for a single function invocation by using a channel like a RAII-style mutex
 local sharedObject = love.image.newImageData( -- ...
 local callback = function(shared) 
-    -- do atomic operations here
+    -- do atomic, synchronized operations here
+    -- all other threads waiting on this channel will block
     shared:setPixel(
         4, 2, -- pixel xy 
         1, 0, 1, 1 -- rgba
@@ -835,7 +836,7 @@ channel:performAtomic(callback, sharedObject)
 -- allocate shared memory
 local shared = ffi.new("uint8_t[?]", 1024)
 
--- send pointer as number, ffi is disallowed
+-- send pointer as integer, ffi objects are disallowed
 main2worker:send(tonumber(ffi.cast("uint32_t", shared)))
 
 -- main can modify memory (race conditions apply, may crash)
@@ -844,14 +845,14 @@ shared[12] = 0x4
 ```lua
 -- in worker:
 
--- retrieve pointer, cast back to shared memory array
+-- retrieve integer, cast back to shared memory array pointer
 local shared = ffi.cast("uint8_t[?]", main2worker:demand())
 
 -- worker can modify memory (race conditions apply, may crash)
 shared[12] = 0x5
 ```
 
-The same can be achieved more safely with LÖVE 12.0's new `ByteData` interface
+The same can be achieved more safely with LÖVE 12.0's new `ByteData` interface, where `ByteData` is a `love.Object` and can thus be passed by-reference between threads using a channel.
 
 ```lua
 -- using luajit ffi
@@ -862,6 +863,8 @@ shared[12] = 0x4
 local shared = love.data.newBytedata(ffi.sizeof("uint8_t") * 1024)
 shared:setUInt8(8 * 12, 0x4) -- takes byte offset, not index
 ```
+
+Where `ByteData`s new `set*` methods have no synchronization, race conditions apply and a mutex should be used when modifying them
 
 
 
