@@ -18,7 +18,7 @@ By mastering meshes, we can extend LÖVEs graphical capability significantly, re
 
 Given here are code snippets that illustrate basic usage of meshes. These are **intended to be referenced after having read this chapter**. Readers new to meshes are not expected to understand these snippets, and should [skip to section 1 of this chapter](#10-what-are-meshes-why-use-them).
 
-## 0.1 Creating a Textured Rectangle
+### 0.1 Creating a Textured Rectangle
 
 ```lua
 -- initialization
@@ -44,7 +44,8 @@ love.draw = function()
     love.graphics.draw(rectangle)
 end 
 ```
-## 0.2 Creating a Colored Circle
+
+### 0.2 Creating a Colored Circle
 
 ```lua
 -- initialization
@@ -76,6 +77,7 @@ love.draw = function()
     love.graphics.draw(circle)
 end
 ```
+
 ### 0.3 Creating a Polygon Mesh using Triangulation
 
 ```lua
