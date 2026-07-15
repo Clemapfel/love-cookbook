@@ -34,17 +34,19 @@ Every computer has a **CPU**, which is the physical chip on the motherboard that
 
 # 1.1 Glossary, Creating a Thread
 
-From this point onward, when we say "thread", we mean a truly asynchronous thread object, created via `love.Thread`. When we say "routine", we mean a a non-concurrently running program, which Lua's `coroutine` does fall into, but for this chapter, not all "routines" are lua coroutines.
+From this point onward, when we say "thread", we mean a truly asynchronous thread object, created via `love.Thread`. When we say "routine", we mean a a non-concurrently running program, which Lua's `coroutine` does fall into, but for this chapter, not all "routines" are Lua coroutines.
 
-**Threads are asynchronous, routines are synchronous. Threads run concurrently, routines run non-concurrently.**
++ Threads are asynchronous, routines are synchronous
++ Threads run concurrently, routines run non-concurrently
++ Threads exhibit parallelism, routines do not
 
-With the word definitions out of the way, let's create a thread along with a routine and see what happens:
+With the definitions out of the way, let's create a thread along with a routine and see what happens:
 
 ```lua
 -- create a thread
 local thread = love.thread.newThread([[
     local args = ...
-    print("True Thread says: ", ...);
+    print("Thread says: ", ...);
     print("\n")
 ]])
 
@@ -54,7 +56,7 @@ thread:start("hello")
 -- create a routine
 local routine = function(...)
     local args = ...
-    print("Fake Thread says: ", ...);
+    print("Routine says: ", ...);
     print("\n")
 end
 
@@ -62,18 +64,18 @@ end
 routine("begone")
 ```
 ```
-True Thread says: Fake Thread says: 		begonehello
+Thread says: Routine says: 		begonehello
 ```
 
 Here, we created a `love.Thread` using its constructor, which either takes a filename or multi-line string as the argument. This thread is idle when created, we have to start it manually using `start`, which can optionally take arguments that are forwarded to the thread and accessible via `...` Like shown. We provide the string `"hello"` as the argument for the thread. We also create a lua function, which is a routine, then, to "start" it, we simply call the function, providing `"begone"` for the vararg.
 
 The output above is not a typo, that is the actual console output that the above program *can* exhibit. Why is that, and why does it only happen sometimes?
 
-When we run a Lua program, it is ran in what we will call the "main" thread, or **main**. Any other thread we will call a **worker**. Note that both main and all workers are threads. All programs, including LÖVE, run in main by default. Any program not using any threads at all still runs in one thread: main. Any two threads will run concurrently to each other, meaning the CPU is capable of performing operations for both main and a worker at the same time, as well as for a worker and worker. However, within the same theads, execution is concurrent. 
+When we run a Lua program, it is ran in what we will call the "main" thread, or **main**. Any other thread we will call a **worker**. Note that both main and all workers are threads. All programs, including LÖVE, run in main by default. Any program not using any threads at all still runs in one thread: main. Any two threads will run concurrently to each other, meaning the CPU is capable of performing operations for both main and a worker at the same time, as well as for a worker and worker. However, within the same theads, execution is synchronous. 
 
-Given this, let's try to understand why we see the above output. We start a worker, `thread`, then call a function in main, `routine`. From this point onwards, the CPU is running through both `routine` in main and the code of `thread` in a worker **concurrently**. While main is printing `Fake Thread says: "begone"`, it just so happened that our worker `thread` was printing `True Thread says: hello` in the middle of main printing. The two prints became interleaved, resulting in the garbled output.
+Given this, let's try to understand why we see the above output. We start a worker, `thread`, then call a function in main, `routine`. From this point onwards, the CPU is running through both `routine` in main and the code of `thread` in a worker **concurrently**. While main is printing `Routine says: "begone"`, it just so happened that our worker `thread` was printing `Thread says: hello` in the middle of main's printing. The two prints became interleaved, resulting in the garbled output.
 
-If you run the above program, most of the time it will behave as expected, printing
+If we run the above program again, most of the time it will behave as expected, printing
 
 ```
 True Thread says: hello
@@ -97,8 +99,8 @@ local threadB = love.thread.newThread(code)
 
 -- start all threads
 local n_calls = 20
-threadA:start(n_calls, "A") -- print 100 As
-threadB:start(n_calls, "B") -- print 100 Bs
+threadA:start(n_calls, "A") -- print 20 As
+threadB:start(n_calls, "B") -- print 20 Bs
 ```
 
 Here we create two workes, one that prints `A` twenty times, and one that prints `B` twenty times. We start both as closely together in time as we can.
