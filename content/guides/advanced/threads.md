@@ -1,7 +1,7 @@
 ---
 title: "Threads"
 authors: [clemapfel]
-date: 2025-02-19
+date: 2025-07-14
 ---
 
 In this chapter, we'll learn how to use **`love.Thread`**. This is not a guide on parallel programming in general, rather it only introduces concepts relevant to LÖVE specifically.
