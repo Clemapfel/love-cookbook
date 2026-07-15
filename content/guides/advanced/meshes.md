@@ -6,13 +6,17 @@ date: 2026-07-14
 
 # Meshes
 
-This chapter will cover **Meshes**, which are a central concept in graphics programming and are used to display any geometry on screen. While rarely used by beginners thanks to LÖVEs high level of abstract, meshes are actually used internally by LÖVE for displaying any kind of graphics, including for `love.graphics.rectangle`, `love.graphics.circle`, `love.graphics.polygon`, and `draw`ing `Images`, `SpriteBatche`s, `ParticleSystem`s, etc.
+This chapter will cover **Meshes**, which are a central concept in graphics programming and are used to display any geometry on screen. While rarely used by beginners thanks to LÖVEs high level of abstraction, meshes are actually used internally by LÖVE for displaying any kind of graphics, including for `love.graphics.rectangle`, `love.graphics.circle`, `love.graphics.polygon`, and `draw`ing `Images`, `SpriteBatche`s, `ParticleSystem`s, etc.
 
-By mastering meshes, we can extend LÖVEs graphical capability significantly, rendering shapes not possible with LÖVEs existing high-level API.
+By mastering meshes, we can extend LÖVEs graphical capability significantly, rendering shapes not possible with LÖVEs existing high-level API, and achieving performance even better what basic usage of LÖVE can offer.
+
+## Table of Contents
+
+---
 
 # 0. TL;DR: Quick Start
 
-Given here are code snippets that illustrate basic usage of meshes. These are **intended to be referenced after having read this chapter**. Readers new to meshes are not expected to understand these snippets, and should skip to section 1 of this chapter.
+Given here are code snippets that illustrate basic usage of meshes. These are **intended to be referenced after having read this chapter**. Readers new to meshes are not expected to understand these snippets, and should [skip to section 1 of this chapter](#10-what-are-meshes-why-use-them).
 
 ## 0.1 Creating a Textured Rectangle
 
@@ -40,14 +44,13 @@ love.draw = function()
     love.graphics.draw(rectangle)
 end 
 ```
-
-## 0.2 Creating a Circle
+## 0.2 Creating a Colored Circle
 
 ```lua
 -- initialization
 local x, y, xr, yr = 200, 200, 100, 100 -- center xy, x-radius, y-radius
 local vertexCount = 64 -- number of outer vertices
-local r, g, b, a = 1, 1, 1, 1 -- color: pure white
+local r, g, b, a = 1, 0, 1, 1 -- color: magenta
 
 local circle -- love.Mesh
 do
@@ -73,8 +76,74 @@ love.draw = function()
     love.graphics.draw(circle)
 end
 ```
+### 0.3 Creating a Polygon Mesh using Triangulation
 
-### 0.3 Drawing 20k Sprites using Geometry Instancing
+```lua
+-- input vertex data. format: { x1, y1, x2, y2, ... }
+local input = {
+--   x,                y
+     167.8622990257,   0,
+     141.37412207129,  153.70547063563,
+    -41.827243725195,  198.73007856213,
+    -187.28713855132,  102.30176491128,
+    -159.32457952398, -89.182472409685,
+    -39.483305587746, -162.49970086587,
+     148.0247332512,  -152.10238729167,
+}
+
+-- triangulate using loves built-in triangulation, only works for convex polygons
+local triangles = love.math.triangulate(input)
+
+-- create the polygon mesh
+local polygon -- love.Mesh
+do
+    -- get bounding box for texture coordinate calculation
+    local xMin, yMin = math.huge, math.huge
+    local xMax, yMax = -math.huge, -math.huge
+    for i = 1, #input, 2 do
+        local x = input[i + 0]
+        local y = input[i + 1]
+        xMin = math.min(xMin, x)
+        yMin = math.min(yMin, y)
+        xMax = math.max(xMax, x)
+        yMax = math.max(yMax, y)
+    end
+    
+    -- convert vertex position to texture coordinate
+    local xy2uv = function(x, y)
+        return (x - xMin) / (xMax - xMin),
+        (y - yMin) / (yMax - yMin)
+    end
+    
+    local vertex_data = {}
+    local r, g, b, a = 1, 1, 1, 1
+    
+    -- iterate each vertex of each triangle, and add it as a mesh vertex
+    for _, triangle in ipairs(triangles) do
+        -- `triangles` format: {{ x1, y1, ...}, {x1, y1 ...}, ... }
+        for i = 1, #triangle, 2 do
+            -- `triangle` format: { x1, y1, x2, y2, x3, y3 }
+            local x = triangle[i + 0]
+            local y = triangle[i + 1]
+            local u, v = xy2uv(x, y)
+            table.insert(vertex_data, {
+                x, y, u, v, r, g, b, a
+            })
+        end
+    end
+    
+    -- initialize the mesh
+    polygon = love.graphics.newMesh(vertex_data, "triangles", "dynamic")
+end 
+
+-- usage
+love.draw = function()
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(polygon)
+end
+```
+
+### 0.4 Drawing 20k Sprites using Geometry Instancing
 ###### `main.lua`
 ```lua
 local instanceCount = 20e3 -- we will be drawing *twenty thousand* sprites at >60fps
@@ -129,15 +198,15 @@ local dataMeshFormat = {
 
 -- create the data mesh vertex data
 local dataMeshData = {}
-local minX, minY, maxX, maxY = 50, 50, love.graphics.getWidth() - 50, love.graphics.getHeight() - 50
-local minScale, maxScale = 20, 50
+local xMin, yMin, xMax, yMax = 50, 50, love.graphics.getWidth() - 50, love.graphics.getHeight() - 50
+local scaleMin, scaleMax = 20, 50
 for i = 1, instanceCount do
-    local offsetX = love.math.random(minX, maxX)
-    local offsetY = love.math.random(minY, maxY)
-    local scale = love.math.random(minScale, maxScale)
+    local offsetX = love.math.random(xMin, xMax)
+    local offsetY = love.math.random(yMin, yMax)
+    local scale = love.math.random(scaleMin, scaleMax)
     table.insert(dataMeshData, {
         -- InstanceOffset    | InstanceScale
-        --       x,       y,   scale
+        --       x,       y,   x
            offsetX, offsetY,   scale
     })
 end
@@ -177,17 +246,18 @@ love.draw = function()
     love.graphics.print(love.timer.getFPS(), 20, 20)
 end
 
-local elapsed = 0
 local interpolate = function(lower, upper, ratio)
     return lower * (1 - ratio) + upper * ratio
 end
 
 love.update = function(delta)
-    elapsed = elapsed + delta
-
     -- modify the scales of all instances every frame
     for i, data in ipairs(dataMeshData) do
-        data[3] = interpolate(minScale, maxScale, (math.sin(elapsed + i * math.pi) / 2) + 1)
+        -- for each **instance**, get a unique value in [0, 1]
+        data[3] = interpolate( -- assign to dataMesh attribute #2: scale
+            scaleMin, scaleMax, 
+            (math.sin(love.timer.getTime() + i) / 2) + 1 
+        )
     end
 
     -- upload the data to the attached mesh
@@ -251,22 +321,26 @@ void pixelmain() { // custom fragment shader entry point
 
 ---
 
-1.0 What Are Meshes? Why use them?
-1.1 Vertices
-1.1 Vertex Attributes: Mesh Vertex Format, Vertex Data
-1.1.1 Vertex Position
-1.1.1 Vertex Texture Coordinates (UV)
-1.1.1 Vertex Color
-1.1.1 Custom Vertex Attributes
-1.1 Mesh Draw Modes
-1.1.1 Draw Mode: `"fan"`
-1.1.1 Draw Mode: `"strip"`
-1.1.1 Draw Mode: `"triangles"`
-1.1.1 Draw Mode: `"points"`
-1.1 Index Buffers & setVertexMap
-1.1 Graphics Buffer Usage
-1.1 Creating the Mesh
-
-2.0 Geometry Instancing
-2.1 Attribute Attachment
-2.2 Instanced Drawing
+# 1.0 What Are Meshes? Why use them?
+## 1.1 Vertices
+## 1.2 Vertex Attributes: Mesh Vertex Format, Vertex Data
+### 1.2.1 Vertex Position
+### 1.2.2 Vertex Texture Coordinates (UV)
+### 1.2.3 Vertex Color
+### 1.2.4 Custom Vertex Attributes
+### 1.2.5 Vertex Attribute Formats
+## 1.3 Mesh Draw Modes
+### 1.3.1 Draw Mode: `"fan"`
+### 1.3.1 Draw Mode: `"strip"`
+### 1.3.1 Draw Mode: `"triangles"`
+### 1.3.1 Draw Mode: `"points"`
+## 1.4 Index Buffers & setVertexMap
+## 1.5 Graphics Buffer Usage
+## 1.6 Creating the Mesh
+## 1.7 Updating Vertex Data
+### 1.7.1 `setVertexAttribute`
+### 1.7.2 `setVertices`
+### 1.7.3 Using `ByteData`
+# 2.0 Geometry Instancing
+## 2.1 Attribute Attachment
+## 2.2 Instanced Drawing
