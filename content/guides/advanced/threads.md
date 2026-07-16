@@ -10,6 +10,8 @@ Any code in this chapter works in LÖVE 11.0 or newer, unless otherwise specifie
 
 Despite Lua not support any threading whatsoever, the LÖVE authors went out of their way to implement them anyway, as threading can be vital to modern game engines. While it is nice the exist at all, LÖVE threads come with heavy restrictions when compared to languages such as [C++](<https://cppreference.com/>) or [Julia](<https://docs.julialang.org/en/v1/>). In return, however, using (and learning to use) LÖVE threads is a much simpler topic than those languages, allowing users with very little or no experience in parallel programming to still achieve relevant performance gains in their games.
 
+---
+
 ## Table of Contents
 
 - [1.0 What is a Thread?](#10-what-is-a-thread)
