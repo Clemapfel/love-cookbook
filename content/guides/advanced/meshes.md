@@ -694,19 +694,25 @@ In this second version, `center` returns those values for the color because they
 
 So far, we have only created a mesh and then drawn it. What if we want to change the mesh after creation? While we could create a new mesh everytime something about the vertex data changes, this is very slow and inoptimal, as it incurs significant overhead. Instead, we should **upload vertex data to an already existing mesh**. This is made possible by `setVertices`, which replaces all vertices of a mesh at once.
 
-
-
 ## 1.5 Graphis Buffer Usage
 
-Lastly, we finally turn our attention to the last argument of `newMesh`, which is a value of the enum [`BufferDataUsage`](<https://love2d.org/wiki/BufferDataUsage>). This value decides on how memory is prepared for the mesh on the GPU. It has three values, which roughly correspond to the following use cases.
+We now finally turn our attention to the last argument of `newMesh`, which is a value of the enum [`BufferDataUsage`](<https://love2d.org/wiki/BufferDataUsage>).
+```lua
+local mesh = love.graphics.newMesh(vertexData, 
+    "triangles",
+    "dynamic" -- graphics buffer usage
+)
+```
+
+This value decides how memory is prepared for the mesh on the GPU. It has three possible values, which roughly correspond to the following use cases.
 
 + `"static"`: vertex data will never be replaced
 + `"dynamic"`: vertex data may be replace sometimes
 + `"stream"`: vertex data will be replaced every frame
 
-Setting `BufferDataUsage` does not change the meshes visuals or anything about it's vertex datas alyout, it is an optimization technique that increase performance when drawing or replacing vertex data using `setVertices`. Again, this barely matter for small meshes, but once we start uploading 100k vertices every frame, the difference between `"stream"` and `"static"` is highly relevant. `"static"` is fastest to draw and slowest to upload, `"stream"` is fastest to upload and slowest to draw, `"dynamic"` is a happy medium.
+Setting `BufferDataUsage` does not change the meshes visuals or anything about it's vertex datas layout, it is an optimization technique that increase performance when drawing or replacing vertex data using `setVertices`. This barely matter for small meshes, but once we start uploading 100k vertices every frame, the difference between `"stream"` and `"static"` is highly relevant. `"static"` is fastest to draw and slowest to upload, `"stream"` is fastest to upload and slowest to draw, `"dynamic"` is a happy medium.
 
-## 1.5.1 
+## 1.5.1 `setVertices` Example
 
 To demonstrate the capabilities of replacing vertex data, we consider the following example:
 
@@ -741,9 +747,11 @@ love.update = function(delta)
     local vertex = vertices[5] -- center vertex
     local maxOffset = 40 -- maximum offset from center, in px
     
+    -- vertex property #1: x
     -- move cx by a random amount
     vertex[1] = cx + maxOffset * ((love.math.perlinNoise(love.timer.getTime()) * 2) - 1)
     
+    -- vertex property #2: y
     -- move cy by a random amount
     vertex[2] = cy + maxOffset * ((love.math.perlinNoise(-1 * love.timer.getTime()) * 2) - 1)
 
@@ -763,9 +771,29 @@ Where `love.math.perlinNoise` (LÖVE 12.0 or newer) is used to randomly move the
 
 ![](/assets/img/meshes/mesh_upload_example.png)
 
-While the result is quit comical in this case, distorting textures using meshes like this is a powerful technique (cf. [Section 1.0.2](#102-texture-deformation)). Furthermore, `setVertices` will be instrumental in the next section of this chapter, where we will use a mesh to store data for thousands of entities, and upload properties to the GPU every frame to change the state of those entities, then draw them with a single draw call (as forecast in [Section 1.0.3](#103-rendering-tens-of-thousands-of-the-same-shape)).
+While the result is quit comical in this case, distorting textures using meshes like this is a powerful technique (cf. [Section 1.0.2](#102-texture-deformation)). Furthermore, `setVertices` will be instrumental in the next section of this chapter, where we will use a mesh to store data for thousands of entities, and upload properties of those entities to the GPU every frame, thus changing the state of those entities. This allows us draw all of those entites with a single draw call (as forecast in [Section 1.0.3](#103-rendering-tens-of-thousands-of-the-same-shape)).
 
+## 1.5.2 `setVertex` Example
 
+LÖVE also provides a convenience function `setVertex`, which directly modifies a single vertex in the copy of the vertex data LÖVE holds internally:
+
+```lua
+local vertexData = { }
+
+-- set 5th vertex, 2nd property (y-coordinate) to 250
+vertexData[5][2] = 250
+mesh:setVertices(vertexData) -- update mesh
+
+-- equivalent to
+mesh:setVertex(5, 2, 250) -- 5th vertex, 2nd property (y), set to 250
+-- mesh updates automatically
+```
+
+Where `mesh:setVertices` is not reqiured when using `setVertex`. With `setVertex`, we don't have to manually keep a CPU-side copy of the vertex data, making it convenient if only a few vertices (instead of a majority of them) change every frame.
+
+---
+
+## 2.0 Data Meshes & Mesh Attribute Attachment
 
 ```lua
 
