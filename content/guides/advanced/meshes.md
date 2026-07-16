@@ -18,7 +18,9 @@ By mastering meshes, we can extend LÖVEs graphical capability significantly, re
 
 # 0. TL;DR: Quick Start
 
-Given here are code snippets that illustrate basic usage of meshes. These are **intended to be referenced after having read this chapter**. Readers new to meshes are not expected to understand these snippets, and should [skip to section 1 of this chapter](#10-what-are-meshes-motivation).
+Given here are code snippets that illustrate basic usage of meshes. These are **intended to be referenced after having read this chapter**. Readers new to meshes are not expected to understand these snippets, and should 
+
+#### [skip to section 1 of this chapter](#10-what-are-meshes-motivation)
 
 ### 0.1 Creating a Textured Rectangle
 
@@ -351,7 +353,7 @@ Reproducing this mechanic in LÖVE is perfectly possible, and would require noth
 
 ### 1.0.3 Rendering Tens of Thousands of the same Shape
 
-While 3D in this example, a technique that could be used to render tens of thousands of blades of grass in games like "Breath of the Wild" is a graphical capability of most modern GPUs called *geometry instancing*. This technology is available in LÖVE, and LÖVE could match Nintendos custom engine capabilities at least in this specific instance of drawing the same shape, slightly altered, tens of thousands of times. Achieving this in 2D compared to 3D is trivial.
+While 3D in this example, a technique that could be used to render tens of thousands of blades of grass in games like "Breath of the Wild" is a graphical capability of most modern GPUs called *geometry instancing*. This technology is available in LÖVE, and LÖVE could match Nintendos custom engine capabilities at least in this specific instance of drawing the same shape, slightly altered, tens of thousands of times. This works exactly the same in both 3D and 2D.
 
 ![](/assets/img/meshes/botw_grass.png)
 
@@ -361,7 +363,7 @@ While 3D in this example, a technique that could be used to render tens of thous
 
 With us now hopefully motivated to put in the effort to understand meshes in order to unlock unlimited and highly advanced graphical capabilities in LÖVE, we will turn our attention to terminology. While this chapter will avoid math such as differential geometry as much as possible, certain terms are unavoidable when speaking about meshes in a technical sense.
 
-A **vertex** (plural: *vertices*) is a point in space (2D or 3D). It has an x coordinate and y coordinate, as well as certain other properties, such as a color (encoded as four numbers, red, green, blue, opacity).
+A **vertex** (plural: *vertices*) is a point in space (2D or 3D). It has an x coordinate and y coordinate (and z in 3D), as well as a number of other properties, such as a color (encoded as four numbers, red, green, blue, opacity).
 
 Given *exactly two vertices*, an **edge** is a straight line drawn from the first vertices position to the second. An edge is unordered, meaning the edge from vertex A to B is the same object as an edge from B to A. 
 
@@ -369,58 +371,61 @@ Given *exactly three vertices*, a **tri** is the triangle that is defined by the
 
 A **mesh**, then, is a collection of one or more tris. Note that these tris do not need to be connected, though they can be. Since vertices can be 2D or 3D, tris, too, can be 2D or 3D, but any property other than the number of coordinates for the position transfers and there is no difference between 2D and 3D for our purposes. 
 
-In LÖVE, unless otherwise specified, vertices have the following properties, where we will explain what uv coordinates are in the next section.
+In LÖVE, unless otherwise specified, vertices have the following properties (where we will explain what uv coordinates are in a later section):
 
 + **position**: two numbers for the x-coordinate and y-coordinate, in pixels
-+ **texture coordinates**: two numbers for the u-coordinates and v- coordinate, each normalized to the value range `[0, 1]`
++ **texture coordinates**: two numbers for the u-coordinate and v-coordinate, each normalized to the value range `[0, 1]`
 + **color**: four numbers, one for the r, g, b, and a (alpha / opacity), each normalized to the value range `[0, 1]`
 
-These properties are stored inline, meaning a vertex with this **vertex format** (position, texture coordinate, color) is described as follows.
+These properties are stored inline, meaning a vertex with this **vertex format** (position, texture coordinate, color) is a flat table of numbers like so:
 
 ```lua
 local vertex = { 
-    200, 300, -- x, y
+    200.5, 300, -- x, y
     0.3, 0.4, -- u, v
     1, 0, 1, 0.5 -- r, g, b, a
 }
 ```
 
-A tri then, is a table of three vertices:
+A tri, then, is a table of three vertices:
 
 ```lua
 local tri = {
     { -- vertex #1
-        45, 170, -- xy
-        0.0, 0.0, -- uv
-        1.0, 0.0, 0.0, 1.0 -- rgba 
+        45, 170,  -- xy: position is (45, 170)
+        0.0, 0.0, -- uv: texture coordinate is (0, 0)
+        1.0, 0.0, 0.0, 1.0 -- rgba: color is red
     },
     { -- vertex #2
         210, 45, 
         1.0, 0.0, 
-        0.0, 1.0, 0.0, 1.0 
+        0.0, 1.0, 0.0, 1.0 -- color is blue
     },
     { -- vertex #3
         200, 235, 
         0.5, 1.0, 
-        0.0, 0.0, 1.0, 1.0 
+        0.0, 0.0, 1.0, 1.0 -- color is green
     },
 }
 ```
 
-A table that contains three or more vertices, defining one or more tris, will can also be called **vertex data**. 
+A table that contains three or more vertices, defining one or more tris, will also be called the **vertex data** of a mesh. 
 
-Now that we have a tri, we can finally draw our first mesh. Recall that a mesh is a collection of tris, so one tri is a mesh.
+Now that we have a tri, we can finally draw our first mesh. Recall that a mesh is a collection of tris, so one tri still counts as a mesh.
 
-We use `love.graphics.newMesh` to create a mesh, and `love.graphics.draw` to draw it. It reacts to `setColor` as does any other `love.graphics` shape. We will not touch on the last two parameters for this function for now, they will be explained in a later section
+We use `love.graphics.newMesh` to create a mesh, and `love.graphics.draw` to draw it. It reacts to `setColor` as does any other `love.graphics` shape. We will not touch on the last two parameters for this function for now, they will be explained in a later section:
 
 ```lua
 local tri = {
-    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1: xy uv rgba
-    { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2: xy uv rgba
-    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3: xy uv rgba
+    { 45,  170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- vertex #1: xy uv red
+    { 210,  45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- vertex #2: xy uv green
+    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 },  -- vertex #3: xy uv blue
 }
 
-local mesh = love.graphics.newMesh(tri, "fan", "dynamic")
+local mesh = love.graphics.newMesh(
+    tri, -- vertex data
+    "triangles", "dynamic" -- explained in later section
+)
 
 love.draw = function()
     love.graphics.setColor(1, 1, 1, 1)
@@ -434,13 +439,13 @@ Before we analyze this image, let's add another vertex first:
 
 ```lua
 local tri = {
-    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1: xy uv green
-    { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2: xy uv blue
-    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3: xy uv red
+    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1: xy uv red
+    { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2: xy uv green
+    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3: xy uv blue
     { 120, 280, 0.5, 1.0, 1.0, 0.0, 1.0, 1.0 }, -- #4: xy uv magenta (NEW)
 }
 
-local mesh = love.graphics.newMesh(tri, "fan", "dynamic")
+local mesh = love.graphics.newMesh(tri, "triangles", "dynamic")
 
 love.draw = function()
     love.graphics.setColor(1, 1, 1, 1)
@@ -451,10 +456,10 @@ end
 ![](/assets/img/meshes/quad_hello_world.png)
 
 Two question arise: 
-+ (i) Why do *four* vertices result in a valid mesh, when meshes are collection of triangles?
-+ (ii) Why is mesh colored like that, with a smooth mix between colors?
++ (i) Why do *four* vertices result in a valid mesh, when meshes are collection of triangles, and each triangle is exaclty three vertices?
++ (ii) Why is the mesh colored like that? Why do we see a smooth mix of colors?
 
-Turning our attention to (i) first, we can use one of LÖVEs rarely used API to answer this question. `love.graphics.setWireframe` makes any mesh draw call after display the *edges* instead of the triangles themself. 
+Turning our attention to (i) first, we can use one of LÖVEs rarely used API to answer this question. `love.graphics.setWireframe` makes any mesh draw call after display the *edges* instead of the triangles themself. This function should only used for debugging, not to display meshes in a shipped game.
 
 ```lua
 love.draw = function()
@@ -467,7 +472,7 @@ end
 
 ![](/assets/img/meshes/quad_hello_world_wireframe.png)
 
-This confirms that the mesh is actually made up out of two valid triangles, so our definition of a mesh being a collection of triangles is correct. We notice that the two triangles share an edge. This is a key observation. Indeed, we can reproduce the above shape like so:
+This confirms that the mesh is actually made up out of two valid triangles, so our definition of a mesh being a collection of triangles is still correct. We notice that the two triangles share an edge. This is a key observation. Indeed, we can reproduce the above shape like so:
 
 ```lua
 --[[
@@ -490,15 +495,13 @@ local tri = {
     { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2: xy uv blue
     { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3: xy uv red
     
+    -- duplicate edge: 1 -> 3
     { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1: xy uv green
     { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3: xy uv red
     { 120, 280, 0.5, 1.0, 1.0, 0.0, 1.0, 1.0 }, -- #4: xy uv magenta
-}
+} 
 
-local mesh = love.graphics.newMesh(tri, 
-    "triangles", -- NEW: was "fan"
-    "dynamic"
-)
+local mesh = love.graphics.newMesh(tri, "triangles", "dynamic")
 
 love.draw = function()
     love.graphics.setColor(1, 1, 1, 1)
@@ -524,14 +527,14 @@ If the draw mode is `triangles` specifically, a new API opens up: `setVertexMap`
 
 ```lua
 local tri = {
-    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 }, -- #1
+    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1
     { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2
     { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3
     { 120, 280, 0.5, 1.0, 1.0, 0.0, 1.0, 1.0 }, -- #4
 }
 
 local fan = love.graphics.newMesh(tri, 
-    "fan",  -- mode "fan", 2 -> 3 edge is duplicated
+    "fan",  -- mode "fan", 2 -> 3 edge is duplicated automatically
     "dynamic"
 )
 
@@ -581,11 +584,11 @@ local sixMesh = love.graphics.newMesh(six, "triangles", "dynamic")
 -- no setVertexMap
 ```
 
-While these two meshes look the same when drawn, GPU-side the `six` vertex data takes up 33% more memory than the `four` data. While this is insignificant for a mesh with so few vertices and triangles, in gamedev practice meshes can sometimes contains tens of thousands of vertices. In that case, a 33% memory overhead may become significant.  
+While these two meshes look the same when drawn, GPU-side the `six` vertex data takes up 33% more memory than the `four` data. While this is insignificant for a mesh with so few vertices and triangles, in gamedev practice meshes can sometimes contain tens of thousands of vertices. In that case, a 33% memory overhead may become significant.  
 
 ## 1.3 Vertex Attribute Interpolation
 
-We recall that we wondered in section 1.2 as to why the mesh had a smooth range of colors, instead of a single color. We note that in our four-vertex mesh example:
+We recall that we wondered in section 1.2 as to why the mesh had a smooth range of colors, instead of a single color like all the `love.graphics` shapes. We note that in our four-vertex mesh example:
 
 ```lua
 local tri = {
@@ -600,16 +603,16 @@ local tri = {
 
 The vertices have the colors of red, blue, green, and magenta respectively. 
 
-When a mesh is drawn, the GPU automatically **interpolates** between all vertex properties, meaning it takes the property of two neighboring vertices (where neighboring means they are part of an edge, according to the draw mode), and linearly moves from one value to the other.
+When a mesh is drawn, the GPU automatically **interpolates** between all vertex properties, meaning it takes the property of three neighboring vertices (where neighboring means they are part of the same tri, according to the draw mode), and linearly mixes between all three vertex properties. This is done for each column in the vertex data table, including position.
 
 For example:
 
 ```lua
 local x, y, w, h = 50, 50, 200, 200
 local light = function() return 0.1, 0.1, 0.1, 1 end
-local dark = function() return 0.5, 0.5, 0.5, 1  end
+local dark  = function() return 0.5, 0.5, 0.5, 1  end
 local vertices = {
-    --    x,     y,   u, v,   r, g, b, a
+    --    x,     y,   u, v,   rgba
     { x + 0, y + 0,   0, 0,   light() }, -- #1
     { x + w, y + 0,   1, 0,    dark() }, -- #2
     { x + w, y + h,   1, 1,    dark() }, -- #3
@@ -619,13 +622,13 @@ local vertices = {
 local rectangle = love.graphics.newMesh(vertices, "fan", "dynamic")
 ```
 
-Here, we create a rectangular mesh made up of two tris. The Vertex indices are shown in the following figure:
+Here, we created a rectangular mesh made up of two tris (four vertices and draw mode `"fan"`). The Vertex indices are shown in the following figure:
 
 ![](/assets/img/meshes/interpolation_gray.png)
 
 We see that the left side of the rectangle is `dark()` and the right side is `light()`. Turning our attention to just the `1 -> 2` edge for now (the line going from vertex `1` to vertex `2`, at the top of the rectangle), we see that vertex `1` is dark, and vertex `2` is light. Therefore, the GPU will blend from the dark gray to the light gray along that edge. This is not only done for each edge, but for every pixel in the mesh.
 
-Giving each rectangle it's own color
+Giving each vertex it's own color
 
 ```lua
 local x, y, w, h = 50, 50, 200, 200
@@ -644,6 +647,8 @@ local rectangle = love.graphics.newMesh(vertices, "fan", "dynamic")
 ```
 
 ![](/assets/img/meshes/interpolation_color.png)
+
+we see that the GPU has no issue interpolating between four colors at once.
 
 Readers are encourage to carefully trace how each color is blended between two neighboring edges as an exercise.
 
@@ -692,11 +697,11 @@ In this second version, `center` returns those values for the color because they
 
 ## 1.4 Replacing Vertex Data
 
-So far, we have only created a mesh and then drawn it. What if we want to change the mesh after creation? While we could create a new mesh everytime something about the vertex data changes, this is very slow and inoptimal, as it incurs significant overhead. Instead, we should **upload vertex data to an already existing mesh**. This is made possible by `setVertices`, which replaces all vertices of a mesh at once.
+So far, we have only created a mesh and then drawn it. What if we want to change the mesh after creation? While we could create a new mesh everytime something about the vertex data changes, this is very slow and inoptimal, as it incurs significant overhead. Instead, we should **upload vertex data to an already existing mesh**. This is made possible by `setVertices`, which replaces the entire vertex data of a mesh at once. This is much faster than creating a new mesh, as a mesh is more than just the vertex data one the GPU.
 
 ## 1.5 Graphis Buffer Usage
 
-We now finally turn our attention to the last argument of `newMesh`, which is a value of the enum [`BufferDataUsage`](<https://love2d.org/wiki/BufferDataUsage>).
+With this option of replacing vertex data, we now finally turn our attention to the last argument of `newMesh`, which is a value of the enum [`BufferDataUsage`](<https://love2d.org/wiki/BufferDataUsage>).
 ```lua
 local mesh = love.graphics.newMesh(vertexData, 
     "triangles",
@@ -722,7 +727,7 @@ love.window.setMode(300, 300)
 local x, y, w, h = 50, 50, 200, 200
 local cx, cy = x + w / 2, y + h / 2 -- center of mesh
 local vertices = {
-    --    x,     y,  u,   v,   r, g, b, a
+    --    x,     y,  u,   v,    r, g, b, a
     { x + 0, y + 0,  0,   0,    1, 1, 1, 1 }, -- #1
     { x + w, y + 0,  1,   0,    1, 1, 1, 1 }, -- #2
     { x + w, y + h,  1,   1,    1, 1, 1, 1 }, -- #3
@@ -744,16 +749,15 @@ rectangle:setTexture(love.graphics.newImage("assets/sprites/toast.png"))
 
 -- update routine: modify mesh data every frame
 love.update = function(delta)
-    local vertex = vertices[5] -- center vertex
     local maxOffset = 40 -- maximum offset from center, in px
     
-    -- vertex property #1: x
+    -- vertex #5 (center), vertex property #1: x
     -- move cx by a random amount
-    vertex[1] = cx + maxOffset * ((love.math.perlinNoise(love.timer.getTime()) * 2) - 1)
+    vertex[5][1] = cx + maxOffset * ((love.math.perlinNoise(love.timer.getTime()) * 2) - 1)
     
-    -- vertex property #2: y
+    -- vertex #5 (center), vertex property #2: y
     -- move cy by a random amount
-    vertex[2] = cy + maxOffset * ((love.math.perlinNoise(-1 * love.timer.getTime()) * 2) - 1)
+    vertex[5][2] = cy + maxOffset * ((love.math.perlinNoise(-1 * love.timer.getTime()) * 2) - 1)
 
     -- upload vertices
     rectangle:setVertices(vertices)
