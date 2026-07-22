@@ -6,9 +6,15 @@ date: 2025-07-14
 
 In this chapter, we'll learn how to use **`love.Thread`**. This is not a guide on parallel programming in general, rather it only introduces concepts relevant to LÖVE specifically.
 
-Any code in this chapter works in LÖVE 11.0 or newer, unless otherwise specified.
-
 Despite Lua not support any threading whatsoever, the LÖVE authors went out of their way to implement them anyway, as threading can be vital to modern game engines. While it is nice the exist at all, LÖVE threads come with heavy restrictions when compared to languages such as [C++](<https://cppreference.com/>) or [Julia](<https://docs.julialang.org/en/v1/>). In return, however, using (and learning to use) LÖVE threads is a much simpler topic than those languages, allowing users with very little or no experience in parallel programming to still achieve relevant performance gains in their games.
+
+#### In this chapter we will learn:
+
++ What a thread is
++ Nomenclature around threads such as *concurrency*, *asynchronicity*, *main*, *worker*, *channel*
++ Why concurrency is non-deterministic 
++ How to transmit data between threads
++ How to implement a fully functioning thread pool
 
 ---
 
@@ -840,9 +846,11 @@ Asynchronous programming is an incredibly deep topic, so hopefully we'll have ga
 ### 4.0 Addendum
 
 > [!CAUTION]
-> The following is for advanced users only, which already know asynchronous programming. It will make no attempts to not be technical.
+> The following is for users already familiar with asynchronous programming outside of LÖVE.
 
 ### 4.1 Using a Channel as a Mutex
+
+We can use a `love.Channel` as a [mutex](https://en.wikipedia.org/wiki/Lock_(computer_science)) (also called a "lock" in certain languages) using `performAtomic`, which will use the channels internal mutex that synchronized `pop` and `push`, meaning while `performAtomic` is active, no object can modify the channels or call `performAtomic` in another thread, meaning anything inside the given functions is truly synchronous:
 
 ```lua
 -- in main or worker, we can synchronize for a single function invocation by using a channel like a RAII-style mutex
@@ -861,6 +869,10 @@ channel:performAtomic(callback, sharedObject)
 ```
 
 ### 4.2 Sharing FFI Memory
+
+Threads can share non-lua allocated memory, meaning memory allocated using `ffi` or a C binding. Doing this is highly unsafe, as race conditions apply just as they would in pure C++, and any failure to synchronize memory write/read will result in a hard crash. Nontheless, this technique can be powerful if high levels of data sharing is required, but should be reserve to such a case.
+
+To send over a pointer to the ffi data, we do
 
 ```lua
 -- in main:
@@ -884,19 +896,23 @@ local shared = ffi.cast("uint8_t[?]", main2worker:demand())
 shared[12] = 0x5
 ```
 
+Where we cast the array pointer to a plain number so we can send it using channels, then cast the plain number back to a pointer to retrieve it worker-side.
+
 The same can also be achieved with LÖVE 12.0's new `ByteData` interface, where `ByteData` is a `love.Object` and can thus be passed by-reference between threads using a channel.
 
 ```lua
 -- using luajit ffi
-local shared = ffi.new("uint8_t[?]", 1024)
-shared[12] = 0x4
+local shared = ffi.new("uint8_t[?]", 1024) -- allocate 1024 bytes
+shared[12] = 0x4 -- takes integer index, not byte offset
+channel:push(shared) -- will error
 
--- equivalent to, using love 12.0 ByteData
+-- using love 12.0 ByteData
 local shared = love.data.newBytedata(ffi.sizeof("uint8_t") * 1024)
-shared:setUInt8(8 * 12, 0x4) -- takes byte offset, not index
+shared:setUInt8(8 * 12, 0x4) -- `set*` takes byte offset, not index
+channel:push(shared) -- will work
 ```
 
-Where `ByteData`s new `set*` methods have no synchronization, race conditions apply and a mutex should be used when modifying them
+Where `ByteData`s new `set*` methods have no synchronization, race conditions apply and a mutex should be used when modifying them.
 
 
 

@@ -9,7 +9,15 @@ date: 2025-02-19
 > [!CAUTION]
 > This guide is made for LÖVE 12.0! These stencil functions are not available in prior versions.
 
+
 This chapter will go over **stencils**, which open up a number of advanced drawing techniques. Stencils allow us to only draw (or not draw) certain parts of a shape or texture to the window or active canvas. Similar to real-world stencils, they let us "cut out" only parts of an image, an effect that would be very hard to achieve otherwise.
+
+#### In this chapter we will learn:
+
++ What a stencil buffer is
++ When to use stencils
++ Wow to use `setStencilMode`, the high level API
++ Wow to use `setStencilState`, the low level API
 
 ## Table of Contents
 
@@ -40,6 +48,8 @@ This chapter will go over **stencils**, which open up a number of advanced drawi
 ---
 
 # 0. TL;DR: Quick Start
+
+#### [\[click here to skip to section 1 of this chapter\]](#1-stencil-buffer)
 
 For those without enough time to read this entire chapter, or people returning for reference purposes, below are example usages of the stencil-related functions in LÖVE 12.
 
