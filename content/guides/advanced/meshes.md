@@ -10,6 +10,13 @@ This chapter will cover **Meshes**, which are a central concept in graphics prog
 
 By mastering meshes, we can extend LÖVEs graphical capability significantly, rendering shapes not possible with LÖVEs existing high-level API, and achieving performance even better what basic usage of LÖVE can offer.
 
+#### In this chapter we will learn:
++ Why and when to use meshes
++ What vertices, edges, meshes are
++ What vertex attributes, texture coordinates are
++ How to set the mesh draw mode and index buffer
++ How to use meshes to draw tens of thousands of entities at once
+
 ---
 
 ## Table of Contents
@@ -18,9 +25,9 @@ By mastering meshes, we can extend LÖVEs graphical capability significantly, re
 
 # 0. TL;DR: Quick Start
 
-Given here are code snippets that illustrate basic usage of meshes. These are **intended to be referenced after having read this chapter**. Readers new to meshes are not expected to understand these snippets, and should 
+#### [\[click here to skip to section 1 of this chapter\]](#10-what-are-meshes-motivation)
 
-#### [skip to section 1 of this chapter](#10-what-are-meshes-motivation)
+Given here are code snippets that illustrate basic usage of meshes. These are **intended to be referenced after having read this chapter**. Readers new to meshes are not expected to understand these snippets, and should 
 
 ### 0.1 Creating a Textured Rectangle
 
@@ -329,7 +336,7 @@ void pixelmain() { // custom fragment shader entry point
 
 # 1.0 What Are Meshes? Motivation
 
-Scrolling past the code snippets in section 0, meshes can seem quit intimidating both from a conceptual and implementation site. Before diving into this topic, we may want to first answer the question of why and when we would want to use meshes at all? What are situations where we *have* to use meshes, situations where no other LÖVE API can achieve a certain result.
+Scrolling past the code snippets in section 0, meshes can seem quite intimidating both from a conceptual and implementation side. Before diving into this topic, we may want to first answer the question of why and when we would want to use meshes at all? What are situations where we *have* to use meshes, situations where no other LÖVE API can achieve a certain result.
 
 ### 1.0.1 Drawing Custom Shapes
 
@@ -517,78 +524,195 @@ Where we changed the second argument of mesh from `fan` to  `triangles`. We see 
 
 ## 1.2 Mesh Draw Modes
 
-The second argument of `love.graphics.newMesh` is called the **draw mode**, which is a value of the enum [`love.MeshDrawMode`](https://love2d.org/wiki/MeshDrawMode). The draw mode determines how the list of vertices in the vertex data is treated when constructing the list of tris internally. It's best to visualize this process, we generate the following shape:
+The second argument of `love.graphics.newMesh` is called the **draw mode**, which is a value of the enum [`love.MeshDrawMode`](https://love2d.org/wiki/MeshDrawMode). The draw mode determines how the list of vertices in the vertex data is treated when constructing the list of tris internally. It's best to visualize this process. We first meet our two example meshes for this section.
 
-TODO
+A **heptagon**, a 7-sided regular polygon:
 
-## 1.2.1 `setVertexMap`
+![](/assets/img/meshes/draw_mode_heptagon_base.png)
 
-If the draw mode is `triangles` specifically, a new API opens up: `setVertexMap`. This function takes a list of 1-based vertex indices, which will be the order the GPU considers the vertices when constructing the list of triangles. For example, the following two meshes are identical:
+And a **ribbon**, a connected strip of tris:
+
+![](/assets/img/meshes/draw_mode_ribbon_base.png)
+
+We first take a moment to analyze the vertex layout of these, as they are quite complex shapes.
+
+Firstly, the **heptagon** has 8 vertices, 1 center vertex and 7 for each of it's side. The **center vertex is the first vertex**, the outer vertices are ordered clockwise.
+
+Secondly, the **ribbon** also has 8 vertices. The First vertex is at the bottom left, the second is on the opposite the first, then we move one segment up, with 3rd on the left, 4th on the right, 5th on left, and so on.
+
+Ignoring the math to generate these shapes, how are they drawn? Assuming we already have the vertex data `heptagonData` and `ribbonData`, the above meshes are created as such:
 
 ```lua
-local tri = {
-    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1
-    { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2
-    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3
-    { 120, 280, 0.5, 1.0, 1.0, 0.0, 1.0, 1.0 }, -- #4
-}
-
-local fan = love.graphics.newMesh(tri, 
-    "fan",  -- mode "fan", 2 -> 3 edge is duplicated automatically
-    "dynamic"
+local heptagonMesh = love.graphics.newMesh(
+    heptagonData, -- vertex data
+    "fan",        -- draw mode
+    "dynamic"     -- buffer usage (ignored for now)
 )
-
-local triangles = love.graphics.newMesh(tri,
-    "triangles", -- mode "triangles", `setVertexMap` used for triangulation
+local ribbonMesh = love.graphics.newMesh(
+    ribbonData,   -- vertex data
+    "strip",      -- draw mode
     "dynamic"
-)
-
-triangles:setVertexMap(
-    1, 2, 3, -- top left triangle
-    1, 3, 4  -- bottom right triangle
 )
 ```
 
-`setVertexMap` is preferred over manually duplicating vertices in the vertex data like this:
+We see that unlike before, the second argument is no longer `triangles`, but `fan` for the heptagon and `strip` for the ribbon. What does this mean?
+
+When the GPU constructs the triangles from the vertex data, it internally constructs a list of indices, then goes through them and groups any 3 as a tri. For example, given indices `i1, i2, i3, ..., k`, where `k` is the number of vertices in the list:
 
 ```lua
-local fourVertices = {
-    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 }, -- #1
-    { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2
-    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3
-    { 120, 280, 0.5, 1.0, 1.0, 0.0, 1.0, 1.0 }, -- #4
-}
+-- vertex indices
+{ i1, i2, i3, i4, i5, i6, i7, ..., k-2, k-1, k }
 
-local fourMesh = love.graphics.newMesh(fourVertices, "triangles", "dynamic")
+-- triangle list
+{ i1, i2, i3 }, { i4, i5, i6}, ..., { k-2, k-1, k }
+```
+Where each table `{ a, b, c }` is the triangle with the coordinates `ax, ay, bx, by, cx, cy`.
 
--- manually triangulate
-fourMesh:setVertexMap(
-    1, 2, 3,
-    1, 3, 4
-)
+This is the intuitive thing to do, take each triplet of indices, and that is a tri. This is how exactly how the draw mode `"triangles"` works internally.
 
--- visually the same as 
+Draw mode `fan`, the draw mode used for our heptagon, groups indices as follows:
 
-local six = {
-    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1
-    { 210, 45, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0 },  -- #2
-    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3
-    
-    { 45, 170, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 },  -- #1
-    { 200, 235, 0.5, 1.0, 0.0, 0.0, 1.0, 1.0 }, -- #3
-    { 120, 280, 0.5, 1.0, 1.0, 0.0, 1.0, 1.0 }, -- #4
-}
+```lua
+-- vertex indices
+{ i1, i2, i3, i4, i5, i6, i7, ..., k-2, k-1, k }
 
-
-local sixMesh = love.graphics.newMesh(six, "triangles", "dynamic")
--- no setVertexMap
+-- triangle list
+{ i1, i2, i3 }, { i1, i3, i4 }, { i1, i5, i6 }, ... { i1, k-2, k-1}, { i1, k-1, k }
 ```
 
-While these two meshes look the same when drawn, GPU-side the `six` vertex data takes up 33% more memory than the `four` data. While this is insignificant for a mesh with so few vertices and triangles, in gamedev practice meshes can sometimes contain tens of thousands of vertices. In that case, a 33% memory overhead may become significant.  
+We see that each triangle is constructed as follows: the first vertex of the current tri **is the first vertex in the vertex data**. Looking at our heptagon again, we can see this clearly on the right:
 
-## 1.3 Vertex Attribute Interpolation
+![](/assets/img/meshes/draw_mode_heptagon_base.png)
 
-We recall that we wondered in section 1.2 as to why the mesh had a smooth range of colors, instead of a single color like all the `love.graphics` shapes. We note that in our four-vertex mesh example:
+Each triangle shares the the first vertex `i1`. The first tri is `1, 2, 3`, the second is `1, 3, 4`, etc. 
+
+Turning our attention to our ribbon now, it was created using draw mode `"strip"`, which groups indices as follows:
+
+```lua
+-- vertex indices
+{ i1, i2, i3, i4, i5, i6, i7, ..., k-2, k-1, k } 
+
+-- triangle list
+{ i1, i2, i3 }, { i2, i3, i4 }, { i3, i4, i5 }, ... { k-3, k-2, k-1}, { k-2, k-1, k }
+```
+
+We see that now, instead of sharing the first vertex, each triangle shares the **last two vertices of the triangle before**. Looking at our ribbon mesh again:
+
+![](/assets/img/meshes/draw_mode_ribbon_base.png)
+
+We can see how the first tri is `1, 2, 3`, the second is `2, 3, 4`, and so on.
+
+With this, we have learned the three draw modes, `"triangles"`, `"fan"`, and `"strip"`. Just for fun, what happens if use the wrong draw mode?
+
+```lua
+local heptagonMesh = love.graphics.newMesh(
+    heptagonData, 
+    "strip",  -- was: "fan"
+    "dynamic"
+)
+```
+
+![](/assets/img/meshes/draw_mode_heptagon_strip.png)
+
+```lua
+local heptagonMesh = love.graphics.newMesh(
+    heptagonData, 
+    "triangles", -- was: "fan"
+    "dynamic"
+)
+```
+
+![](/assets/img/meshes/draw_mode_heptagon_triangles.png)
+
+```lua
+local ribbonMesh = love.graphics.newMesh(
+    ribbonData, -- vertex data
+    "fan",      -- was: "strip"
+    "dynamic"
+)
+```
+
+![](/assets/img/meshes/draw_mode_ribbon_fan.png)
+
+```lua
+local ribbonMesh = love.graphics.newMesh(
+    ribbonData, -- vertex data
+    "triangles",      -- was: "strip"
+    "dynamic"
+)
+```
+
+![](/assets/img/meshes/draw_mode_ribbon_triangles.png)
+
+As an exercise, let's try to understad *how* the mesh was corrupted exactly. We consider the last example, drawing the ribbon with `"triangles"` instead of `"strip"`:
+
+We see that instead of the full ribbon, we only see two triangles. Why is this? We recall that `"triangles"` just goes through the list of vertices and groups them by a group of three. So the first triangle is `1, 2, 3`, the second is `4, 5, 6`, and the last one would be `7, 8, 9`, but our ribbon only has 8 vertices. The GPU handles this without an error, and simply does not draw the last triangle.
+
+This corrupted mesh also shows well that **tris do not need to be connected**. We can have a mesh of complete separate triangles without any issues.
+
+## 1.3 Index Buffers / Vertex map
+
+In our exploration of draw modes, we have use vertex indices `i1, i2, i3` instead of vertex coordinates `x1, y1, x2, y2, x3, y3`. The main reason the GPU and thus LÖVE deals in vertex indices is because of something called an **index buffer** (also called a **Vertex Map**). Each mesh has this buffer internally, it is a table of the form
+
+```lua
+{ ia, ib, ic, id, ... }
+```
+
+Where `ia`, `ib`, etc. are vertex indices, so numbers between `1` and `k`, the total number of vertices which is also the size of the table of vertex data (since it is a table of tables).
+
+We use `ia`, `ib` here instead of `i1`, `i2` because the index buffer can crucially be **unordered**. For example the following is a perfectly valid index buffer, as long as the mesh has 4 or more vertices:
+
+```lua
+{ 1, 3, 2, 3, 1, 4, 4, 2, 3 }
+```
+
+Not only is the index buffer unordered, but **vertex indices are allowed to be duplicated**. When the GPU constructs the tris using the draw mode, it goes through each index in the index buffer as described above, and groups the as tris. This allows us to use certain vertices multiple times. While this is great for memory usage, it most importantly interacts with draw mode, allowing us to create well-formed meshes from any vertex data. 
+
+Considering our ribbon again, this was draw mode `"strip"`
+
+![](/assets/img/meshes/draw_mode_ribbon_base.png)
+
+And this was draw mode `"triangles"`
+
+![](/assets/img/meshes/draw_mode_ribbon_triangles.png)
+
+We can actually make `"triangles"` work perfectly fine by modifying the index buffer. By default, a mesh with `k` vertices will have the index buffer `{ 1, 2, 3, ..., k }`. This is why we see the behavior of `"triangles"` corrupting the ribbon, it groups them as discussed.
+
+We can manually arrange the index buffer such that it already contains valid triangles, then override the `ribbonMesh` index buffer using `setVertexMap`:
+
+```lua
+ribbonMesh = love.graphics.newMesh(ribbonData, 
+    "triangles",  -- now "triangles" instead of "strip"
+    "dynamic"
+)
+
+-- manually override the index buffer
+ribbonMesh:setVertexMap(
+    1, 2, 3, -- triangle #1,
+    2, 3, 4,
+    3, 4, 5,
+    4, 5, 6,
+    5, 6, 7,
+    6, 7, 8
+)
+```
+
+Where we manually reproduce the behavior that `"strip"` would have, where each tri shares the last two vertices of the tri before
+
+> [!CAUTION]
+> **`setVertexMap` is only available if the draw mode is `"triangles"`**. If we try to `setVertexMap` on a mesh with another draw mode, an error will be raised
+
+Drawing this mesh now:
+
+![](/assets/img/meshes/draw_mode_ribbon_base.png)
+
+Everything looks exactly like we want it to, by manually choosing the correct vertex map, we can draw seemingly ill-fit vertex data correctly. Note that this does not incur any significant performance overhead, as the vertex data `ribbonData` has stayed unaltered.
+
+In summary, we should choose the draw mode to fit our mesh, but if can't make it fit, or we don't have control over the mesh, for example loading it from a file, we should make the draw mode `"triangels"` and `setVertexMap` manually. See an example of this in the [the triangulation of a polygon using math.triangulate above](#03-creating-a-polygon-mesh-using-triangulation).
+
+## 1.5 Vertex Attribute Interpolation
+
+We recall that we wondered in section 1.1 as to why the mesh had a smooth range of colors, instead of a single color like all the `love.graphics` shapes. We note that in our four-vertex mesh example:
 
 ```lua
 local tri = {
@@ -648,11 +772,9 @@ local rectangle = love.graphics.newMesh(vertices, "fan", "dynamic")
 
 ![](/assets/img/meshes/interpolation_color.png)
 
-we see that the GPU has no issue interpolating between four colors at once.
-
 Readers are encourage to carefully trace how each color is blended between two neighboring edges as an exercise.
 
-We also note some artifacting along the `1 -> 3` edge. This is a result of the fact that vertex properties are only blendend **inside the same tri**. For each point in the triangle, the GPU takes the distance to all three vertices, then blends each vertex property (color in this case) by taking a weighted average based on the distances. Because it only happens for each tri, not the entire mesh, artifacting like seen above appears.
+We also note some artifacting along the `1 -> 3` edge. This is a result of the fact that vertex properties are only blendend **inside the same tri**. For each point in the triangle, the GPU takes the distance to all three vertices, then blends each vertex property (color in this case) by taking a linear weighted average based on the distances. Because it only happens for each tri, not the entire mesh, artifacting like seen above appears.
 
 We can fix this by manually inserting an additional vertex:
 
@@ -663,7 +785,7 @@ local cyan    = function() return 0, 1, 1, 1 end
 local magenta = function() return 1, 0, 1, 1 end
 local yellow  = function() return 1, 1, 0, 1 end
 local center  = function() return 0.5, 0.75, 0.5, 1 end
-local vertices = {
+local vertexData = {
     --    x,       y,     u,   v,   r, g, b, a
     { x + 0, y + 0,     0,   0,   green() },   -- #1
     { x + w, y + 0,     1,   0,   cyan() },    -- #2
@@ -672,34 +794,165 @@ local vertices = {
 }
 
 -- add new center vertex
-table.insert(vertices,
+table.insert(vertexData,
     { x + w / 2, y + h / 2, 0.5, 0.5, center() } -- #5
 )
 
-local rectangle = love.graphics.newMesh(vertices, "triangles", "dynamic")
+local rectangle = love.graphics.newMesh(vertexData, "triangles", "dynamic")
 rectangle:setVertexMap(
     1, 2, 5, -- top triangle
     2, 3, 5, -- right triangle
     3, 4, 5, -- bottom triangle
-    4, 1, 5  -- left triangle
+    1, 4, 5  -- left triangle
 )
 ```
 
 ![](/assets/img/meshes/interpolation_color_fixed.png)
 
-Where the `setVertexMap` may be easier to follow if we label the center and only draw the edges
+Where the `setVertexMap` may be easier to follow if we label each vertex and only draw the edges:
 
 ![](/assets/img/meshes/interpolation_color_fixed_wireframe.png)
 
 In this second version, `center` returns those values for the color because they are the component-wise average of all other four colors.
 
-## 1.3 Texture Coordinates
+## 1.6 Texture Coordinates
 
-## 1.4 Replacing Vertex Data
+While each tri interpolates between three colors, **all vertex attributes are interpolated**. This includes position, the interpolation of all three positions is the position of the specific pixel on screen, and the third default vertex attribute which we have so far negleted: **texture coordinates**.
+
+A texture coordinate is a 2-number vector in `[0, 1]`, often called `uv`. Being in `[0, 1]` means that u is between 0 and 1 inclusive, and v is between 0 and 1 inclusive. Choose values outside this range will not result in an error.
+
+To see how texture coordinates work and why they matter, we first need a **texture mesh**. We can associate an texture (`love.Image` or `love.Canvas`) with a mesh by using `setTexture`:
+
+```lua
+-- create the (untextured) mesh
+local vertexData = {
+    --    x,       y,     u,   v,   r, g, b, a
+    { x + 0, y + 0,     0,   0,   green() },   -- (1)
+    { x + w, y + 0,     1,   0,   cyan() },    -- (2)
+    { x + w, y + h,     1,   1,   magenta() }, -- (3)
+    { x + 0, y + h,     0,   1,   yellow() },  -- (4)
+}
+local rectangle = love.graphics.newMesh(vertexData, "fan", "dynamic")
+```
+
+Where the triangulation and draw mode are exactly the same as the 5-vertex rectangle from section at the end of section 1.5.
+
+We see that the top left vertex (1) has a uv of `0, 0`, the top right vertex (2) has uv `1, 0`, the bottom right vertex (3) has uv `1, 1`, and the bottom left vertex (4) has uv `0, 1`.
+
+Texture coordinates work the same as pixel coordinates, the u axis is negative going left, positive going right. And the v is **positive going down**, and negative going up. There, left vertices should have a u of `0`, fully to the left, and the right vertices should have a v of `1`, fully to the right. The top vertices should have a v of `0`, and the bottom vertices should have a v of `1`.
+
+It may be complicated to write it out like this, but it's quite natural. It works exactly like pixel coordinates, except we are always normalized ot `[0, 1]`, instead of units in pixels.
+
+Drawing the mesh right now, we again see:
+
+![](/assets/img/meshes/texture_coords_untextured.png)
+
+We now associate a texture with this mesh using `setTexture`:
+
+```lua
+local texture = love.graphics.newImage("toast.png")
+rectangle:setTexture(texture)
+```
+
+Drawing again:
+
+```lua
+love.draw = function()
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(rectangle)
+end
+```
+
+![](/assets/img/meshes/texture_coords_color.png)
+
+Before we diagnose what happened here, let's first modify `vertexData`, such that each vertex is pure white `rgba = { 1, 1, 1, 1 }`:
+
+```lua
+local white = function() return 1, 1, 1, 1 end
+local vertexData = {
+    --    x,       y,   u,   v,   r, g, b, a
+    { x + 0, y + 0,     0,   0,   white() },  -- was: green()
+    { x + w, y + 0,     1,   0,   white() },  -- was: cyan()
+    { x + w, y + h,     1,   1,   white() },  -- was: magenta()
+    { x + 0, y + h,     0,   1,   white() },  -- was: yellow()
+}
+```
+
+Drawing again:
+
+```lua
+love.draw = function()
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(rectangle)
+end
+```
+
+![](/assets/img/meshes/texture_coords_uncolored.png)
+
+Now that we have the full context, let's analyze. We first see that our texture is correctly displayed in terms of orientation. This is beceause our uv coordinates were set up as above.
+
+We notice that with the first, non-white mesh, the color is off. This is because, by default, the interpolated vertex color is multiplied with the pixel at the position of the interpolated texture coordinates. Again, for each tri, the GPU interpolates *all* properties between each triangles vertex: color is interpolated for each pixel, and texture coordinates are interpolated for each pixel. The default shader looks up the correct pixel in the texture given the texture coordinates, then multiplies them with the color.
+
+If we want the texture to be displayed as-is, we should choose a mesh with all-white vertices.
+
+As an exercise, let's flip the u coordinates like so:
+
+```lua
+local vertexData = {
+    --    x,       y,   u,   v,   r, g, b, a
+    { x + 0, y + 0,     1,   0,   white() },  -- u was: 0
+    { x + w, y + 0,     0,   0,   white() },  -- u was: 1
+    { x + w, y + h,     0,   1,   white() },  -- u was: 1
+    { x + 0, y + h,     1,   1,   white() },  -- u was: 0
+}
+```
+
+What do we expect to see?
+
+![](/assets/img/meshes/texture_coords_u_flipped.png)
+
+The image is mirror along the x axis, which corresponds to our flip along the u axis.
+
+Let's restore the uv such that the top left of the mesh gets the top left of the texture, but divide all uv by 2. What will happen?
+
+![](/assets/img/meshes/texture_coords_uv_half.png)
+
+We the wireframe of the mesh is displayed on top of the regular textured mesh for clarity.
+
+Since uv is now in `[0, 0.5]`, instead of `[0, 1]`, only the top half of the texture is shown. But the rectangle is still the same size, it still interpolates just like before, resulting in a stretching of the texture. 
+
+What happens if we go outside of `[0, 1]` for the uv?
+
+```lua
+local vertexData = {
+    --    x,       y,     u,   v,   r, g, b, a
+    { x + 0, y + 0,     0 * 4.5,   0 * 4.5,   white() },   -- #1
+    { x + w, y + 0,     1 * 4.5,   0 * 4.5,   white() },    -- #2
+    { x + w, y + h,     1 * 4.5,   1 * 4.5,   white() }, -- #3
+    { x + 0, y + h,     0 * 4.5,   1 * 4.5,   white() },  -- #4
+}
+
+local rectangle = love.graphics.newMesh(vertexData, "fan", "dynamic")
+
+local texture = rt.Texture("assets/sprites/why.png"):get_native()
+texture:setWrap("repeat")
+rectangle:setTexture(texture)
+
+-- love.draw as before
+```
+Here, we multiplied all uv by `4.5`. We also used `setWrap` on the texture to set its wrap mode to `"repeat"`. What will this look like?
+
+![](/assets/img/meshes/texture_coords_repeat.png)
+
+We see a quite remarkable tiling of the image. Let's try to understand why this happens. When the GPU see a texture coordinate outside of `[0, 1]`, for example a u of `2.5`, it will map this back to `[0, 1]` by taking the module. So `2.5 % 1 = 0.5`, therefore that position is 0.5. If the GPU see a u or v outside of `[0, 1]`, it will still look into the same texture, but which pixel is chosen depends on the textures wrap mode. Remember that the rectangle is still the same size on screen, it still has the same number of pixels, but which pixel of the texture is drawn is dependend on the interpolated texture coordinate. We have chosen `repeat` here, which gives us a natural, non-integer tiling, which would be quite hard to achieve without meshes in LÖVE. 
+
+We will see in the next section what kind of effect we can achieve by moving only the texture coordinates of a single vertex, keeping the others in place. By just changing the texture coordinates, not shaders, not `love.graphis.scale` or `love.graphics.skew`, we can achieve quite sophisticated visual effects.
+
+## 1.7 Replacing Vertex Data
 
 So far, we have only created a mesh and then drawn it. What if we want to change the mesh after creation? While we could create a new mesh everytime something about the vertex data changes, this is very slow and inoptimal, as it incurs significant overhead. Instead, we should **upload vertex data to an already existing mesh**. This is made possible by `setVertices`, which replaces the entire vertex data of a mesh at once. This is much faster than creating a new mesh, as a mesh is more than just the vertex data one the GPU.
 
-## 1.5 Graphis Buffer Usage
+## 1.7.1 Graphis Buffer Usage
 
 With this option of replacing vertex data, we now finally turn our attention to the last argument of `newMesh`, which is a value of the enum [`BufferDataUsage`](<https://love2d.org/wiki/BufferDataUsage>).
 ```lua
@@ -717,7 +970,7 @@ This value decides how memory is prepared for the mesh on the GPU. It has three 
 
 Setting `BufferDataUsage` does not change the meshes visuals or anything about it's vertex datas layout, it is an optimization technique that increase performance when drawing or replacing vertex data using `setVertices`. This barely matter for small meshes, but once we start uploading 100k vertices every frame, the difference between `"stream"` and `"static"` is highly relevant. `"static"` is fastest to draw and slowest to upload, `"stream"` is fastest to upload and slowest to draw, `"dynamic"` is a happy medium.
 
-## 1.5.1 `setVertices` Example
+## 1.7.2 `setVertices` Example
 
 To demonstrate the capabilities of replacing vertex data, we consider the following example:
 
@@ -726,7 +979,7 @@ love.window.setMode(300, 300)
 
 local x, y, w, h = 50, 50, 200, 200
 local cx, cy = x + w / 2, y + h / 2 -- center of mesh
-local vertices = {
+local vertexData = {
     --    x,     y,  u,   v,    r, g, b, a
     { x + 0, y + 0,  0,   0,    1, 1, 1, 1 }, -- #1
     { x + w, y + 0,  1,   0,    1, 1, 1, 1 }, -- #2
@@ -735,7 +988,7 @@ local vertices = {
     { cx,    cy,     0.5, 0.5,  1, 1, 1, 1 }, -- #5 (center)
 }
 
-local rectangle = love.graphics.newMesh(vertices,
+local rectangle = love.graphics.newMesh(vertexData,
     "triangles",
     "stream" -- stream, will be replaced every frame
 )
@@ -760,7 +1013,7 @@ love.update = function(delta)
     vertex[5][2] = cy + maxOffset * ((love.math.perlinNoise(-1 * love.timer.getTime()) * 2) - 1)
 
     -- upload vertices
-    rectangle:setVertices(vertices)
+    rectangle:setVertices(vertexData)
 end
 
 -- draw as before
@@ -775,9 +1028,11 @@ Where `love.math.perlinNoise` (LÖVE 12.0 or newer) is used to randomly move the
 
 ![](/assets/img/meshes/mesh_upload_example.png)
 
-While the result is quit comical in this case, distorting textures using meshes like this is a powerful technique (cf. [Section 1.0.2](#102-texture-deformation)). Furthermore, `setVertices` will be instrumental in the next section of this chapter, where we will use a mesh to store data for thousands of entities, and upload properties of those entities to the GPU every frame, thus changing the state of those entities. This allows us draw all of those entites with a single draw call (as forecast in [Section 1.0.3](#103-rendering-tens-of-thousands-of-the-same-shape)).
+While the result is quit comical in this case, distorting textures using meshes like this is a powerful technique (cf. [Section 1.0.2](#102-texture-deformation)). We have free control over the position and texture coordinate of each vertex, we can change it smoothly by any amount (unlike with `love.Quad`, which only allows integers), and we can change each vertex individually. This allows for unprecendented freedom, and it why meshes are not only the most powerful drawable in LÖVE, but the basis of all drawing in modern graphics.
 
-## 1.5.2 `setVertex` Example
+`setVertices` will be instrumental in the next section of this chapter, where we will use a mesh to store data for thousands of entities, and upload properties of those entities to the GPU every frame, thus changing the state of those entities
+
+## 1.7.3 `setVertex` Example
 
 LÖVE also provides a convenience function `setVertex`, which directly modifies a single vertex in the copy of the vertex data LÖVE holds internally:
 
