@@ -946,7 +946,51 @@ Here, we multiplied all uv by `4.5`. We also used `setWrap` on the texture to se
 
 We see a quite remarkable tiling of the image. Let's try to understand why this happens. When the GPU see a texture coordinate outside of `[0, 1]`, for example a u of `2.5`, it will map this back to `[0, 1]` by taking the module. So `2.5 % 1 = 0.5`, therefore that position is 0.5. If the GPU see a u or v outside of `[0, 1]`, it will still look into the same texture, but which pixel is chosen depends on the textures wrap mode. Remember that the rectangle is still the same size on screen, it still has the same number of pixels, but which pixel of the texture is drawn is dependend on the interpolated texture coordinate. We have chosen `repeat` here, which gives us a natural, non-integer tiling, which would be quite hard to achieve without meshes in LÖVE. 
 
-We will see in the next section what kind of effect we can achieve by moving only the texture coordinates of a single vertex, keeping the others in place. By just changing the texture coordinates, not shaders, not `love.graphis.scale` or `love.graphics.skew`, we can achieve quite sophisticated visual effects.
+Texture coordinates also interact with the `setFilter` property of textures. To better exhibit this, we change our rectangle mesh to fill the entire screen, and zoom in the texture coordinates by 50%:
+
+```lua
+local x, y, w, h = -- ..
+local vertexData = {
+    --    x,       y,     u,       v,   r, g, b, a
+    { x + 0, y + 0,     0.25,   0.25,   1, 1, 1, 1 },
+    { x + w, y + 0,     0.75,   0.25,   1, 1, 1, 1 },
+    { x + w, y + h,     0.75,   0.75,   1, 1, 1, 1 },
+    { x + 0, y + h,     0.25,   0.75,   1, 1, 1, 1 },
+}
+```
+
+We then create two textures, one with `setFilter` set to `nearest`, and one with `setFilter` set to `linear`:
+
+```lua
+local left = rt.Texture("assets/sprites/why.png"):get_native()
+left:setFilter("nearest")
+leftRectangle:setTexture(left)
+
+local right = rt.Texture("assets/sprites/why.png"):get_native()
+right:setFilter("linear")
+rightRectangle:setTexture(right)
+
+love.draw = function()
+    -- draw left: nearest-neighbor filter
+    love.graphics.clear()
+    love.graphics.setColor(1, 1, 1, 1)
+    leftRectangle:setTexture(left)
+    love.graphics.draw(rectangle)
+
+    -- draw right: linear filter
+    love.graphics.push()
+    love.graphics.translate( --..
+    rightRectangle:setTexture(right)
+    love.graphics.draw(rectangle)
+    love.graphics.pop()
+end
+```
+
+![](/assets/img/meshes/texture_coords_filter.png)
+
+
+We see a quite noticeable difference in how the image scales. Again, the mesh can be any kind of shape, not just a rectangle, it can be any size, the texture coordinates can be any number, and the mesh will automatically correctly scale and display any texture, regardless of texture size, an effect that could only be achieved by using many functions such as `love.graphics.scale` and `love.graphics.skew` with quite complicated math if we limit ourselves to only using `love.Quad` to display textured shapes.
+
 
 ## 1.7 Replacing Vertex Data
 
