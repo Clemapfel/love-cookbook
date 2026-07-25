@@ -1096,7 +1096,198 @@ Where `mesh:setVertices` is not reqiured when using `setVertex`. With `setVertex
 
 ---
 
-## 2.0 Data Meshes & Mesh Attribute Attachment
+---
+
+## 2. Data Meshes & Mesh Attribute Attachment
+
+## 2.0 Why Use Custom Meshes?
+
+While meshse are already complicated, rest of this chapter will be even more technical. Both beginner and intermediate users of LÖVE may feel overwhelmed, because LÖVE in general is designed to fully abstract all the manual labor graphics programming requires under the hood. To help with motivation, we should first consider why we would ever want to use a custom mesh?
+
+Internally, a mesh is a **graphics buffer**. A graphics buffer is a section of memory that is on the card. Note that it can be almost any kind of memory, as long as it is numbers. With flexible thinking about how to encode certain things as number, **we can send any kind of data to the CPU**. This opens up some very powerful techniques. For examples, let's say we want to make a ["Vampire Survivors"](https://store.steampowered.com/app/1794680/Vampire_Survivors/)-type game, which is notorious for having thousands of sprites on screen at once:
+
+![](/assets/img/meshes/vampire_survivors.png)
+
+*(Source: [Rock Paper Shotgun](<https://www.rockpapershotgun.com/vampire-survivors-early-access-review>), Copyright: [poncle](<https://store.steampowered.com/search/?developer=poncle>))*
+
+Let's say instead of these enemies being images, which a `love.SpriteBatch` could handle, we want them to be arbitary shapes, not just images. Maybe we want to create a shmup with the entire screen fille with animated bullets, or we want to thousands of snowflakes falling gently as a weather effect. How can the GPU handle that many entities? A naive approach would almost certainly tank the framerate, especially when the effect is drawn on top of the rest of an entire game. To achieve effects like this, meshes are required. By using a GPU feature called **geometry instancing along with custom meshes**, we can store all the data for the enemies or bullets or snowflakes on the GPU, and have it render all of them in a single instruction. This is the power of custom meshes, and is how things like `love.SpriteBatch` or `love.ParticleSystem` are implemented internally.
+
+With a hopefully increased amount of motivation, we turn our attention on how to actually achieve this.
+
+## 2.1 Vertex Attribute Format
+
+`newMesh` has an overload which we have so far not used here:
+
+```lua
+--- @param
+love.graphics.newMesh = function(
+    vertexFormat,   -- Table<Table>
+    verexData,      -- Table<Table>
+    drawMode,       -- love.MeshDrawMode 
+    bufferUsage     -- love.SpriteBatchUsage
+)
+```
+Where `drawMode` is one of the familiar `"triangles"`, `"fan"`, `"strip"`, `bufferUsage` is one of `"static"`, `"dynamic"`, `"stream"`. We have discussed these in sections [1.2](#12-mesh-draw-modes) and [1.7.1](#171-graphis-buffer-usage) respectively.
+
+For `vertexFormat`, we so far assumed it to be a table of the following format:
+
+```lua
+local data = {
+    { x, y, u, v, r, g, b, a }, -- Vertex #1
+    { x, y, u, v, r, g, b, a }, -- Vertex #2
+   -- more vertices
+}
+```
+
+Where `xy` is the vertex's position, `uv` is the vertex'S texture coordinate, and `rgba` is the vertex's color. This is the **default vertex format** uses, however we can use a **custom vertex format** using `newMesh` first argument. The vertex format is a table of the following form, where k is the number of vertex attributes:
+
+```lua
+local vertexFormat = {
+    { 
+        location = -- Index in [0, ..., k - 1]
+        name = -- String
+        format = -- love.DataFormat
+    }
+}
+```
+
+It's probably best to look at an example. We want to reproduce LÖVE's default vertex format, xy position, uv texture coordinate, rgba color, in that order. It would look as follow:
+
+> [!CAUTION]
+> Between LÖVE version 11.5 and 12.0, vertex attribute declaration format was changed completely. The following will only work in LÖVE 12.0 or newer!
+
+```lua
+local defaultFormat = {
+    {
+        location = 0, -- attribute #1 (0-based)
+        name = "VertexPosition", -- cleartext name
+        format = "floatvec2" -- format
+    },
+
+    {
+        location = 1, -- attribute #2 (0-based)
+        name = "VertexTexCoords",
+        format = "floatvec2",
+    },
+
+    { 
+        location = 2, -- attribute #3
+        name = "VertexColor",
+        format = "floatvec4"
+    }
+}
+```
+
+We see that `location` is 0-based, as opposed to the rest of lua which is usually 1-based. This is because `location` will be handed to the shader, which is written in glsl which uses 0-based indexing. The `name` for each format can be freely chosen by the developer, while `format` is a value of the LÖVE enum `DataFormat`, which we will look at soon. First we should again look at how the vertex attribute format corresponds to the actual vertex data. 
+
+```lua
+local vertexData = {
+    { -- Vertex #1
+        200, 300,   -- Attribute #1: "VertexPosition" (2 components)
+        0.3, 0.8,   -- Attribute #2: "VertexTexCoords" (2 components)
+        1, 0, 1, 1  -- Attribute #3: "VertexColor" (4 components)
+    },
+
+    { 300, 150, 0.2, 0.9, 1, 1, 0, 1 }, -- Vertex #2
+    { 100, 230, 0.0, 1.0, 0.3, 0.5, 1, 1 }, -- Vertex #2
+    -- ...
+}
+```
+We see that, because `VertexPosition` is a `floatvec2`, which has 2 components, the first part of each vertices data has to be 2 numbers. `VertexTexCoords` is another `floatvec2` and has 2 components, so another 2 numbers, while `VertexColor` is a `floatvec4` which has 4 components, therefore expecting 4 more numbers. Because all the vertex data for a single vertex is stored as a flat table, each vertex should therefore has `2 + 2 + 4 = 8` numbers. It's important to realize how each vertex attributes corresponds to which indices for each vertex, as malformatting or omitting any numbers in the vertex data may corrupt the mesh. This is also true when using numbers like `math.huge` (infinite) or `NaN`.
+
+### 2.1.1 Vertex Attribute Format
+
+How do we know how many numbers each attribute expectes? The `format` field of a vertex attribute specification is a value of enum `love.DataFormat`, which can have one the following values, where the corresponding GLSL type and number components is given:
+
+Here's the table with a value range column added:
+
+| Name | GLSL Type | # components | value range                    |
+|---|---|---|-----------------------------|
+| `"float"` | `float` | `1` | 32-bit float                |
+| `"floatvec2"` | `vec2` | `2` | 32-bit float                |
+| `"floatvec3"` | `vec3` | `3` | 32-bit float                |
+| `"floatvec4"` | `vec4` | `4` | 32-bit float                |
+| `"int32"` | `int` | `1` | `[-2147483648 - 2147483647]` |
+| `"int32vec2"` | `ivec2` | `2` | `[-2147483648 - 2147483647]` |
+| `"int32vec3"` | `ivec3` | `3` | `[-2147483648 - 2147483647]` |
+| `"int32vec4"` | `ivec4` | `4` | `[-2147483648 - 2147483647]` |
+| `"uint32"` | `uint` | `1` | `[0 - 4294967295]`          |
+| `"uint32vec2"` | `uvec2` | `2` | `[0 - 4294967295]`          |
+| `"uint32vec3"` | `uvec3` | `3` | `[0 - 4294967295]`          |
+| `"uint32vec4"` | `uvec4` | `4` | `[0 - 4294967295]`          |
+| `"snorm8vec4"` | `vec4` | `4` | `[-1.0 - 1.0]`              |
+| `"unorm8vec4"` | `vec4` | `4` | `[0.0 - 1.0]`               |
+| `"int8vec4"` | `ivec4` | `4` | `[-128 - 127]`              |
+| `"uint8vec4"` | `uvec4` | `4` | `[0 - 255]`                 |
+| `"snorm16vec2"` | `vec2` | `2` | `[-1.0 - 1.0]`              |
+| `"snorm16vec4"` | `vec4` | `4` | `[-1.0 - 1.0]`              |
+| `"unorm16vec2"` | `vec2` | `2` | `[0.0 - 1.0]`               |
+| `"unorm16vec4"` | `vec4` | `4` | `[0.0 - 1.0]`               |
+| `"int16vec2"` | `ivec2` | `2` | `[-32768 - 32767]`          |
+| `"int16vec4"` | `ivec4` | `4` | `[-32768 - 32767]`          |
+| `"uint16"` | `uint` | `1` | `[0 - 65535]`               |
+| `"uint16vec2"` | `uvec2` | `2` | `[0 - 65535]`               |
+| `"uint16vec4"` | `uvec4` | `4` | `[0 - 65535]`               |
+
+Note that since **all numbers in Lua are floats**, they get truncated to the nearest glsl type when the vertex data is send to the GPU. For example, `-3.4` for a `uint16` vertex attribute will automatically discard the `.4` and then wrap to the correct 16-bit unsigned integer without an error message, resulting in `65536 - 3 = 65533`. This is true for the multi-component integer vectors too, so we need to be careful when contsructing the vertex data.
+
+As an example, let's create a seemingly exotic mesh. Conceptually, we want the first vertex attribute to be a 2-component vector of floats, the second component to be a single float, and the third component to be a boolean, which we will encoded as a 32-bit unsigned integer:
+
+```lua
+local vertexFormat = {
+    {
+        location = 0, -- attribute #1
+        name = "VertexOffset",
+        format = "floatvec2" -- 2-component float vector
+    },
+
+    {
+        location = 1, -- attribute #2
+        name = "VertexScale",
+        format = "float", -- 1-component float
+    },
+
+    {
+        location = 2, -- attribute #3,
+        name = "VertexShouldDraw",
+        format = "uint32" -- 1-component 32-bit unsigned int
+    }
+}
+```
+
+We can now create the vertex data and mesh:
+
+```lua
+local bool2uint32 = function(x) if x then return 0x1 else return 0x0 end
+local vertexData = {
+    { -- vertex #1
+        300, 200, -- attribute #1 `floatvec2` (2 components)
+        2,        -- attribute #2 `float` (1 component)
+        bool2uint32(true) -- attribute #3 `uint32` (1 component)
+    },
+
+    { -- vertex #2,
+        -200, 120, -- attribute #1 `floatvec2`
+        4,         -- attribute #2 `float`
+        bool2uint32(false) -- attribute #3: `uint32`
+    },
+    
+    -- ...
+}
+
+local exoticMesh = love.graphics.newMesh(
+    vertexFormat, -- table of vertex attribute formats
+    vertexData,   -- mesh vertex data
+    "triangles",   -- draw mode (unused)
+    "dynamic"     -- graphics buffer usage
+)
+```
+
+LÖVE will initialize this mesh perfectly fine, `setVertices` works, and the mesh technically has a draw mode. If we actually try to draw this mesh however, LÖVE will not error, instead drawing a corrupted nonsense to the screen. This is because **we are using the wrong shader**. LÖVE not only has a default mesh format, but a **default shader** it will use when drawing a `love.Mesh` with no shader bound ( `love.graphics.getShader(nil)`). This shader is hardcoded to expect the default vertex format. For example, the default shader expects rgba, a `vec4` at attribute position #3 (`location = 2`), meaning it expects four floats for position #3, while we just gave it a single `uint32`. **To properly use and render custom vertex format meshes, we need a custom shader**.
+
+## 2.2 Custom Vertex Attribute Shader
+
+
 
 ```lua
 

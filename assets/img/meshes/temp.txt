@@ -1,0 +1,43 @@
+
+
+| LÖVE Name       | GLSL Type | # Components |
+|-----------------|---|--------------|
+| `"float"`       | `float` | `1`          |
+| `"floatvec2"`   | `vec2` | `2`          |
+| `"floatvec3"`   | `vec3` | `3`          |
+| `"floatvec4"`   | `vec4` | `4`          |
+| `"floatmat2x2"` | `mat2x2` | `4`          |
+| `"floatmat2x3"` | `mat2x3` | `6`          |
+| `"floatmat2x4"` | `mat2x4` | `8`          |
+| `"floatmat3x2"` | `mat3x2` | `6`          |
+| `"floatmat3x3"` | `mat3x3` | `9`          |
+| `"floatmat3x4"` | `mat3x4` | `12`         |
+| `"floatmat4x2"` | `mat4x2` | `8`          |
+| `"floatmat4x3"` | `mat4x3` | `12`         |
+| `"floatmat4x4"` | `mat4x4` | `16`         |
+| `"int32"`       | `int` | `1`          |
+| `"int32vec2"`   | `ivec2` | `2`          |
+| `"int32vec3"`   | `ivec3` | `3`          |
+| `"int32vec4"`   | `ivec4` | `4`          |
+| `"uint32"`      | `uint` | `1`          |
+| `"uint32vec2"`  | `uvec2` | `2`          |
+| `"uint32vec3"`  | `uvec3` | `3`          |
+| `"uint32vec4"`  | `uvec4` | `4`          |
+| `"snorm8vec4"`  | `vec4` | `4`          |
+| `"unorm8vec4"`  | `vec4` | `4`          |
+| `"int8vec4"`    | `ivec4` | `4`          |
+| `"uint8vec4"`   | `uvec4` | `4`          |
+| `"snorm16vec2"` | `vec2` | `2`          |
+| `"snorm16vec4"` | `vec4` | `4`          |
+| `"unorm16vec2"` | `vec2` | `2`          |
+| `"unorm16vec4"` | `vec4` | `4`          |
+| `"int16vec2"`   | `ivec2` | `2`          |
+| `"int16vec4"`   | `ivec4` | `4`          |
+| `"uint16"`      | `uint` | `1`          |
+| `"uint16vec2"`  | `uvec2` | `2`          |
+| `"uint16vec4"`  | `uvec4` | `4`          |
+| `"bool"`        | `bool` | `1`          |
+| `"boolvec2"`    | `bvec2` | `2`          |
+| `"boolvec3"`    | `bvec3` | `3`          |
+| `"boolvec4"`    | `bvec4` | `4`          |
+
