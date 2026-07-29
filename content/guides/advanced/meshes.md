@@ -11,11 +11,11 @@ This chapter will cover **Meshes**, which are a central concept in graphics prog
 By mastering meshes, we can extend LÖVEs graphical capability significantly, rendering shapes not possible with LÖVEs existing high-level API, and achieving performance even better what basic usage of LÖVE can offer.
 
 #### In this chapter we will learn:
+
 + Why and when to use meshes
 + What vertices, edges, meshes are
 + What vertex attributes, texture coordinates are
 + How to set the mesh draw mode and index buffer
-+ How to use meshes to draw tens of thousands of entities at once
 
 ---
 
@@ -154,182 +154,6 @@ love.draw = function()
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(polygon)
 end
-```
-
-### 0.4 Drawing 20k Sprites using Geometry Instancing
-###### `main.lua`
-```lua
-local instanceCount = 20e3 -- we will be drawing *twenty thousand* sprites at >60fps
-
--- describe instanced mesh format
-local instanceMeshFormat = {
-    -- instance mesh attribute #1: vertex position
-    {
-        location = 0,            -- 0-based, for use in shader
-        name = "VertexPosition", -- CPU-side name, for use in attachAttribute
-        format = "floatvec2"     -- GPU-side data type
-    },
-
-    -- instance mesh attribute #2: texture coordinates
-    { location = 1, name = "VertexTextureCoords", format = "floatvec2" },
-    
-    -- instance mesh attribute #3: vertex color
-    { location = 2, name = "VertexColor", format = "floatvec4" }
-}
-
--- create instance mesh, quad whose vertices are at x = { -1, 1 }, y = { -1, 1 }
-local x, y, w, h = -1, -1, 2, 2
-local instanceMesh = love.graphics.newMesh(instanceMeshFormat, {
-        -- VertexPosition  | VertexTextureCoords |  VertexColor
-        --    x,     y,          u,     v,          r, g, b, a
-        { x + 0, y + 0,          0,     0,          1, 1, 1, 1 },
-        { x + w, y + 0,          1,     0,          1, 1, 1, 1 },
-        { x + w, y + h,          1,     1,          1, 1, 1, 1 },
-        { x + 0, y + h,          0,     1,          1, 1, 1, 1 },
-    }, 
-    "fan",    -- draw mode "fan" for basic quad geometry
-    "static"  -- graphics buffer use "static", instanceMesh never changes
-)
-
--- assign the texture
-local texture = love.graphics.newTexture("assets/toast.png")
-instanceMesh:setTexture(texture)
-
--- describe data mesh format, this will hold the information for each instance
-local dataMeshFormat = {
-    {
-        location = 3,            -- number of attributes in instanceMeshFormat + 1
-        name = "InstanceOffset", -- CPU-side name
-        format = "floatvec2"     -- x: offset (in px), y: offset (in px)
-    },
-    { 
-        location = 4,           
-        name = "InstanceScale", 
-        format = "float"        -- x: scale (in px)
-    }
-}
-
--- create the data mesh vertex data
-local dataMeshData = {}
-local xMin, yMin, xMax, yMax = 50, 50, love.graphics.getWidth() - 50, love.graphics.getHeight() - 50
-local scaleMin, scaleMax = 20, 50
-for i = 1, instanceCount do
-    local offsetX = love.math.random(xMin, xMax)
-    local offsetY = love.math.random(yMin, yMax)
-    local scale = love.math.random(scaleMin, scaleMax)
-    table.insert(dataMeshData, {
-        -- InstanceOffset    | InstanceScale
-        --       x,       y,   x
-           offsetX, offsetY,   scale
-    })
-end
-
-local dataMesh = love.graphics.newMesh(
-    dataMeshFormat,   -- vertex format
-    dataMeshData,     -- vertex data
-    "points",  -- draw mode (unused)
-    "stream"   -- graphics buffer usage: changes every frame
-)
-
--- attach the attributes of dataMesh to instanceMesh
-instanceMesh:attachAttribute("InstanceOffset", dataMesh, "perinstance")
-instanceMesh:attachAttribute("InstanceScale", dataMesh, "perinstance")
-
--- set up a draw shader
-local instanceShader = love.graphics.newShader("instance_draw.glsl")
--- cf. below for `instance_draw.glsl`
-
-love.draw = function()
-    -- set color (`ConstantColor` in vertex shader)
-    love.graphics.setColor(1, 1, 1, 1)
-
-    -- bind the shader
-    love.graphics.setShader(instanceShader)
-
-    -- bind `instanceTexture` uniform in fragment shader
-    instanceShader:send("InstanceTexture", instanceMesh:getTexture())
-
-    -- draw `instanceCount` many copies of `instanceMesh`, with vertex properties queried from `dataMesh`
-    love.graphics.drawInstanced(instanceMesh, instanceCount)
-
-    -- unbind shader
-    love.graphics.setShader(nil)
-
-    -- print FPS
-    love.graphics.print(love.timer.getFPS(), 20, 20)
-end
-
-local interpolate = function(lower, upper, ratio)
-    return lower * (1 - ratio) + upper * ratio
-end
-
-love.update = function(delta)
-    -- modify the scales of all instances every frame
-    for i, data in ipairs(dataMeshData) do
-        -- for each **instance**, get a unique value in [0, 1]
-        data[3] = interpolate( -- assign to dataMesh attribute #2: scale
-            scaleMin, scaleMax, 
-            (math.sin(love.timer.getTime() + i) / 2) + 1 
-        )
-    end
-
-    -- upload the data to the attached mesh
-    dataMesh:setVertices(dataMeshData)
-end
-```
-##### `instance_draw.glsl`
-```glsl
-#ifdef VERTEX // vertex shader
-
-// instance mesh attributes
-layout (location = 0) in vec2 VertexPosition;      // attribute #1: x: position (px), y: position (px)
-layout (location = 1) in vec2 VertexTextureCoords; // attribute #2: x: u, y: v
-layout (location = 2) in vec4 VertexColor;         // attribute #3: rgba
-
-// data mesh attributes
-layout (location = 3) in vec2 InstanceOffset;  // attribute #1: x: offset (px), y: offset (px)
-layout (location = 4) in float InstanceScale;  // attribute #2: x: scale
-
-out vec2 FragmentTextureCoords; // final interpolated texture coordinates, for fragment shader
-out vec4 FragmentColor;         // final interpolated color, for fragment shader
-
-void vertexmain() { // custom vertex shader entry point
-    
-    // compute position from custom vertex attributes
-    vec2 position = VertexPosition;
-    position.xy *= InstanceScale;
-    position.xy += InstanceOffset;
-
-    // set texture coords to default value
-    FragmentTextureCoords = VertexTextureCoords; // xy = uv
-
-    // set color to default value
-    FragmentColor = ConstantColor * VertexColor; // rgba
-    // where `ConstantColor` is a hardcoded global that holds the `love.graphics` Color
-
-    // set position
-    love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
-    // where `TransformProjectionMatrix` is a hardcoded global that holds the `love.graphics` Transform
-    // and `love_Position` is a hardcoded global variable that holds the position of a vertex, in px
-}
-
-#endif
-
-#ifdef PIXEL // fragment shader
-
-uniform sampler2D InstanceTexture; // texture of the instance mesh
-in vec2 FragmentTextureCoords;     // texture coords from vertex shader
-in vec4 FragmentColor;             // color from vertex shader
-
-out vec4 FinalColor; // final fragment color drawn to the screen at love_Position
-
-void pixelmain() { // custom fragment shader entry point
-    
-    // default behavior of `effect`, implemented manually
-    FinalColor = FragmentColor * texture(InstanceTexture, FragmentTextureCoords);
-}
-
-#endif
 ```
 
 ---
@@ -1096,65 +920,17 @@ Where `mesh:setVertices` is not reqiured when using `setVertex`. With `setVertex
 
 ---
 
----
+> [!CAUTION]
+> The following chapter is intended for users already familiar with advanced concepts in graphics programmer, including glsl shaders. No attempt will be made to more closely explain underlying requirements for a general audience
 
-## 2. Data Meshes & Mesh Attribute Attachment
+# 2 Advanced Usage
 
-## 2.0 Why Use Custom Meshes?
+# 2.1 Custom Vertex Attribute Formats
 
-While meshse are already complicated, rest of this chapter will be even more technical. Both beginner and intermediate users of LÖVE may feel overwhelmed, because LÖVE in general is designed to fully abstract all the manual labor graphics programming requires under the hood. To help with motivation, we should first consider why we would ever want to use a custom mesh?
-
-Internally, a mesh is a **graphics buffer**. A graphics buffer is a section of memory that is on the card. Note that it can be almost any kind of memory, as long as it is numbers. With flexible thinking about how to encode certain things as number, **we can send any kind of data to the CPU**. This opens up some very powerful techniques. For examples, let's say we want to make a ["Vampire Survivors"](https://store.steampowered.com/app/1794680/Vampire_Survivors/)-type game, which is notorious for having thousands of sprites on screen at once:
-
-![](/assets/img/meshes/vampire_survivors.png)
-
-*(Source: [Rock Paper Shotgun](<https://www.rockpapershotgun.com/vampire-survivors-early-access-review>), Copyright: [poncle](<https://store.steampowered.com/search/?developer=poncle>))*
-
-Let's say instead of these enemies being images, which a `love.SpriteBatch` could handle, we want them to be arbitary shapes, not just images. Maybe we want to create a shmup with the entire screen fille with animated bullets, or we want to thousands of snowflakes falling gently as a weather effect. How can the GPU handle that many entities? A naive approach would almost certainly tank the framerate, especially when the effect is drawn on top of the rest of an entire game. To achieve effects like this, meshes are required. By using a GPU feature called **geometry instancing along with custom meshes**, we can store all the data for the enemies or bullets or snowflakes on the GPU, and have it render all of them in a single instruction. This is the power of custom meshes, and is how things like `love.SpriteBatch` or `love.ParticleSystem` are implemented internally.
-
-With a hopefully increased amount of motivation, we turn our attention on how to actually achieve this.
-
-## 2.1 Vertex Attribute Format
-
-`newMesh` has an overload which we have so far not used here:
-
-```lua
---- @param
-love.graphics.newMesh = function(
-    vertexFormat,   -- Table<Table>
-    verexData,      -- Table<Table>
-    drawMode,       -- love.MeshDrawMode 
-    bufferUsage     -- love.SpriteBatchUsage
-)
-```
-Where `drawMode` is one of the familiar `"triangles"`, `"fan"`, `"strip"`, `bufferUsage` is one of `"static"`, `"dynamic"`, `"stream"`. We have discussed these in sections [1.2](#12-mesh-draw-modes) and [1.7.1](#171-graphis-buffer-usage) respectively.
-
-For `vertexFormat`, we so far assumed it to be a table of the following format:
-
-```lua
-local data = {
-    { x, y, u, v, r, g, b, a }, -- Vertex #1
-    { x, y, u, v, r, g, b, a }, -- Vertex #2
-   -- more vertices
-}
-```
-
-Where `xy` is the vertex's position, `uv` is the vertex'S texture coordinate, and `rgba` is the vertex's color. This is the **default vertex format** uses, however we can use a **custom vertex format** using `newMesh` first argument. The vertex format is a table of the following form, where k is the number of vertex attributes:
-
-```lua
-local vertexFormat = {
-    { 
-        location = -- Index in [0, ..., k - 1]
-        name = -- String
-        format = -- love.DataFormat
-    }
-}
-```
-
-It's probably best to look at an example. We want to reproduce LÖVE's default vertex format, xy position, uv texture coordinate, rgba color, in that order. It would look as follow:
+LÖVE supports custom vertex attribute using the first argument of `newMesh`:
 
 > [!CAUTION]
-> Between LÖVE version 11.5 and 12.0, vertex attribute declaration format was changed completely. The following will only work in LÖVE 12.0 or newer!
+> Vertex Attribute Format declarations were part of breaking changes going from LÖVE 11.x to 12.0. The following will only work in 12.0 or newer.
 
 ```lua
 local defaultFormat = {
@@ -1176,30 +952,30 @@ local defaultFormat = {
         format = "floatvec4"
     }
 }
-```
 
-We see that `location` is 0-based, as opposed to the rest of lua which is usually 1-based. This is because `location` will be handed to the shader, which is written in glsl which uses 0-based indexing. The `name` for each format can be freely chosen by the developer, while `format` is a value of the LÖVE enum `DataFormat`, which we will look at soon. First we should again look at how the vertex attribute format corresponds to the actual vertex data. 
-
-```lua
 local vertexData = {
     { -- Vertex #1
         200, 300,   -- Attribute #1: "VertexPosition" (2 components)
         0.3, 0.8,   -- Attribute #2: "VertexTexCoords" (2 components)
         1, 0, 1, 1  -- Attribute #3: "VertexColor" (4 components)
     },
-
+    
     { 300, 150, 0.2, 0.9, 1, 1, 0, 1 }, -- Vertex #2
     { 100, 230, 0.0, 1.0, 0.3, 0.5, 1, 1 }, -- Vertex #2
     -- ...
 }
+
+local mesh = love.graphics.newMesh(
+    defaultFormat,
+    vertexData,  -- vertex data
+    "triangles", -- draw mode
+    "dynamic"    -- buffer usage
+)
 ```
-We see that, because `VertexPosition` is a `floatvec2`, which has 2 components, the first part of each vertices data has to be 2 numbers. `VertexTexCoords` is another `floatvec2` and has 2 components, so another 2 numbers, while `VertexColor` is a `floatvec4` which has 4 components, therefore expecting 4 more numbers. Because all the vertex data for a single vertex is stored as a flat table, each vertex should therefore has `2 + 2 + 4 = 8` numbers. It's important to realize how each vertex attributes corresponds to which indices for each vertex, as malformatting or omitting any numbers in the vertex data may corrupt the mesh. This is also true when using numbers like `math.huge` (infinite) or `NaN`.
 
-### 2.1.1 Vertex Attribute Format
+### 2.1.1 Attribute Format
 
-How do we know how many numbers each attribute expectes? The `format` field of a vertex attribute specification is a value of enum `love.DataFormat`, which can have one the following values, where the corresponding GLSL type and number components is given:
-
-Here's the table with a value range column added:
+Where `location` is corresponding glsl vertex attribution location declaration (0-based, cf. Section 2.1.2), and `format` is a member of the following enum, with the number of components and value range shown here:
 
 | Name | GLSL Type | # components | value range                    |
 |---|---|---|-----------------------------|
@@ -1229,143 +1005,662 @@ Here's the table with a value range column added:
 | `"uint16vec2"` | `uvec2` | `2` | `[0 - 65535]`               |
 | `"uint16vec4"` | `uvec4` | `4` | `[0 - 65535]`               |
 
-Note that since **all numbers in Lua are floats**, they get truncated to the nearest glsl type when the vertex data is send to the GPU. For example, `-3.4` for a `uint16` vertex attribute will automatically discard the `.4` and then wrap to the correct 16-bit unsigned integer without an error message, resulting in `65536 - 3 = 65533`. This is true for the multi-component integer vectors too, so we need to be careful when contsructing the vertex data.
+### 2.1.2 Attribute Location
 
-As an example, let's create a seemingly exotic mesh. Conceptually, we want the first vertex attribute to be a 2-component vector of floats, the second component to be a single float, and the third component to be a boolean, which we will encoded as a 32-bit unsigned integer:
+To draw a mesh with a custom layout, we need a custom vertex and fragment shader. These use the `pixelmain` and `vertexmain` custom shader entry points introduced in LÖVE 12.0 as follows:
 
-```lua
-local vertexFormat = {
-    {
-        location = 0, -- attribute #1
-        name = "VertexOffset",
-        format = "floatvec2" -- 2-component float vector
-    },
+```glsl
+#ifdef VERTEX // vertex shader
 
-    {
-        location = 1, -- attribute #2
-        name = "VertexScale",
-        format = "float", -- 1-component float
-    },
+/* 
+Lua attribute format reprinted here for clarity:
+{ 
+    location = 0,            -- attribute #1
+    name = "VertexPosition", -- name
+    format = "floatvec2"     -- format: vec2 (2 components)
+},
 
-    {
-        location = 2, -- attribute #3,
-        name = "VertexShouldDraw",
-        format = "uint32" -- 1-component 32-bit unsigned int
-    }
+{
+    location = 1,             -- attribute #2
+    name = "VertexTexCoords", -- name
+    format = "floatvec2",     -- format: vec2 (2 components)
+},
+
+{ 
+    location = 2,             -- attribute #3
+    name = "VertexColor",     -- name
+    format = "floatvec4"      -- format: vec4 (4 components)
 }
+*/
+
+// instance mesh attributes
+layout (location = 0) in vec2 VertexPosition;      // attribute #1
+layout (location = 1) in vec2 VertexTextureCoords; // attribute #2
+layout (location = 2) in vec4 VertexColor;         // attribute #3
+
+out vec2 FragmentTextureCoords; // final interpolated texture coordinates, for fragment shader
+out vec4 FragmentColor;         // final interpolated color, for fragment shader
+
+void vertexmain() { // custom vertex shader entry point
+    // set position
+    love_Position = TransformProjectionMatrix * vec4(VertexPosition.xy, 0.0, 1.0);
+    // where `TransformProjectionMatrix` is a hardcoded global that holds the `love.graphics` Transform
+    // and `love_Position` is a hardcoded global variable that holds the position of a vertex, in px
+    
+    // set texture coords to default value
+    FragmentTextureCoords = VertexTextureCoords; // xy = uv
+
+    // set color to default value
+    FragmentColor = ConstantColor * VertexColor; // rgba
+    // where `ConstantColor` is a hardcoded global that holds the `love.graphics` Color
+}
+
+#endif
+
+#ifdef PIXEL // fragment shader
+
+uniform sampler2D MeshTexture; // texture of the instance mesh
+in vec2 FragmentTextureCoords;     // texture coords from vertex shader
+in vec4 FragmentColor;             // color from vertex shader
+
+out vec4 FinalColor; // final fragment color drawn to the screen at love_Position
+
+void pixelmain() { // custom fragment shader entry point
+    // default behavior of `effect`, implemented manually hre
+    FinalColor = FragmentColor * texture(MeshTexture, FragmentTextureCoords);
+}
+
+#endif
 ```
 
-We can now create the vertex data and mesh:
+We can then draw the above mesh as follows:
 
 ```lua
-local bool2uint32 = function(x) if x then return 0x1 else return 0x0 end
-local vertexData = {
-    { -- vertex #1
-        300, 200, -- attribute #1 `floatvec2` (2 components)
-        2,        -- attribute #2 `float` (1 component)
-        bool2uint32(true) -- attribute #3 `uint32` (1 component)
+local shader = love.graphics.newShader("custom_vertex_attributes.glsl")
+local mesh = love.graphics.newMesh(defaultFormat, vertexData, "triangles", "dynamic")
+
+-- draw
+love.graphics.setShader(shader)
+shader:send("InstanceTexture", mesh:getTexture()) -- manually assign `MeshTexture` in fragment shader
+love.graphics.setColor(1, 1, 1, 1) -- sets `ConstantColor` in vertex shader
+love.graphics.draw(mesh)
+love.graphics.setShader(nil)
+```
+
+There will be no error message if the vertex attribute location information in the vertex shader mismatches the declared vertex attribute format `defaultFormat` Lua-side.
+
+# 2.2 Geometry Instancing
+
+LÖVE supports geometry instancing. The instance mesh can be drawn with `love.graphics.drawInstanced`. To actually control the property of each instance, `Mesh:attachAttribute` can be used to "append" a data mesh to the instance mesh which controls the per instance properties.
+
+Below is an example of how to geometry instancing to draw a larger number of copies of the same mesh. This requires a custom mesh format (cf `instanceMeshFormat` below), as well as a custom vertex and fragment shader using the generic shader entry points `vertexmain` and `pixelmain` (requires LÖVE 12.0 or newer).
+
+###### `main.lua`
+```lua
+local instanceCount = 20e3 -- we will be drawing *twenty thousand* sprites at >60fps
+
+-- describe instanced mesh format
+local instanceMeshFormat = {
+    -- instance mesh attribute #1: vertex position
+    {
+        location = 0,            -- 0-based, for use in shader
+        name = "VertexPosition", -- CPU-side name, for use in attachAttribute
+        format = "floatvec2"     -- GPU-side data type
     },
 
-    { -- vertex #2,
-        -200, 120, -- attribute #1 `floatvec2`
-        4,         -- attribute #2 `float`
-        bool2uint32(false) -- attribute #3: `uint32`
+    -- instance mesh attribute #2: texture coordinates
+    { location = 1, name = "VertexTextureCoords", format = "floatvec2" },
+    
+    -- instance mesh attribute #3: vertex color
+    { location = 2, name = "VertexColor", format = "floatvec4" }
+}
+
+-- create instance mesh, quad whose vertices are at x = { -1, 1 }, y = { -1, 1 }
+local x, y, w, h = -1, -1, 2, 2
+local instanceMesh = love.graphics.newMesh(instanceMeshFormat, {
+        -- VertexPosition  | VertexTextureCoords |  VertexColor
+        --    x,     y,          u,     v,          r, g, b, a
+        { x + 0, y + 0,          0,     0,          1, 1, 1, 1 },
+        { x + w, y + 0,          1,     0,          1, 1, 1, 1 },
+        { x + w, y + h,          1,     1,          1, 1, 1, 1 },
+        { x + 0, y + h,          0,     1,          1, 1, 1, 1 },
+    }, 
+    "fan",    -- draw mode "fan" for basic quad geometry
+    "static"  -- graphics buffer use "static", instanceMesh never changes
+)
+
+-- assign the texture
+local texture = love.graphics.newTexture("assets/toast.png")
+instanceMesh:setTexture(texture)
+
+-- describe data mesh format, this will hold the information for each instance
+local dataMeshFormat = {
+    {
+        location = 3,            -- `3`, not `0` number of attributes in instanceMeshFormat + 1
+        name = "InstanceOffset", -- CPU-side name
+        format = "floatvec2"     -- x: offset (in px), y: offset (in px)
+    },
+    { 
+        location = 4,           
+        name = "InstanceScale", 
+        format = "float"        -- x: scale (in px)
+    }
+}
+
+-- create the data mesh vertex data
+local dataMeshData = {}
+local xMin, yMin, xMax, yMax = 50, 50, love.graphics.getWidth() - 50, love.graphics.getHeight() - 50
+local scaleMin, scaleMax = 20, 50
+for i = 1, instanceCount do
+    local offsetX = love.math.random(xMin, xMax)
+    local offsetY = love.math.random(yMin, yMax)
+    local scale = love.math.random(scaleMin, scaleMax)
+    table.insert(dataMeshData, {
+        -- InstanceOffset    | InstanceScale
+        --       x,       y,   x
+           offsetX, offsetY,   scale
+    })
+end
+
+local dataMesh = love.graphics.newMesh(
+    dataMeshFormat,   -- vertex format
+    dataMeshData,     -- vertex data
+    "points",  -- draw mode (unused)
+    "stream"   -- graphics buffer usage: changes every frame
+)
+
+-- attach the attributes of dataMesh to instanceMesh
+instanceMesh:attachAttribute(
+    "InstanceOffset",  -- vertex attribute name
+    dataMesh,          -- data mesh
+    "perinstance"      -- attachment mode ("perinstance" or "pervertex")
+)
+instanceMesh:attachAttribute("InstanceScale", dataMesh, "perinstance")
+
+-- set up a draw shader
+local instanceShader = love.graphics.newShader("instance_draw.glsl")
+-- cf. below for `instance_draw.glsl`
+
+love.draw = function()
+    -- set color (`ConstantColor` in vertex shader)
+    love.graphics.setColor(1, 1, 1, 1)
+
+    -- bind the shader
+    love.graphics.setShader(instanceShader)
+
+    -- bind `instanceTexture` uniform in fragment shader
+    instanceShader:send("InstanceTexture", instanceMesh:getTexture())
+
+    -- draw `instanceCount` many copies of `instanceMesh`, with vertex properties queried from `dataMesh`
+    love.graphics.drawInstanced(instanceMesh, instanceCount)
+
+    -- unbind shader
+    love.graphics.setShader(nil)
+
+    -- print FPS
+    love.graphics.print(love.timer.getFPS(), 20, 20)
+end
+
+local interpolate = function(lower, upper, ratio)
+    return lower * (1 - ratio) + upper * ratio
+end
+
+love.update = function(delta)
+    -- modify the scales of all instances every frame
+    for i, data in ipairs(dataMeshData) do
+        -- for each **instance**, get a unique value in [0, 1]
+        data[3] = interpolate( -- assign to dataMesh attribute #2: scale
+            scaleMin, scaleMax, 
+            (math.sin(love.timer.getTime() + i) / 2) + 1 
+        )
+    end
+
+    -- upload the data to the attached mesh
+    dataMesh:setVertices(dataMeshData)
+end
+```
+##### `instance_draw.glsl`
+```glsl
+#ifdef VERTEX // vertex shader
+
+// instance mesh attributes
+layout (location = 0) in vec2 VertexPosition;      // attribute #1: x: position (px), y: position (px)
+layout (location = 1) in vec2 VertexTextureCoords; // attribute #2: x: u, y: v
+layout (location = 2) in vec4 VertexColor;         // attribute #3: rgba
+
+// data mesh attributes
+layout (location = 3) in vec2 InstanceOffset;  // attribute #1: x: offset (px), y: offset (px)
+layout (location = 4) in float InstanceScale;  // attribute #2: x: scale
+
+out vec2 FragmentTextureCoords; // final interpolated texture coordinates, for fragment shader
+out vec4 FragmentColor;         // final interpolated color, for fragment shader
+
+void vertexmain() { // custom vertex shader entry point
+    
+    // compute position from custom vertex attributes
+    vec2 position = VertexPosition;
+    position.xy *= InstanceScale;
+    position.xy += InstanceOffset;
+
+    // set texture coords to default value
+    FragmentTextureCoords = VertexTextureCoords; // xy = uv
+
+    // set color to default value
+    FragmentColor = ConstantColor * VertexColor; // rgba
+    // where `ConstantColor` is a hardcoded global that holds the `love.graphics` Color
+
+    // set position
+    love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
+    // where `TransformProjectionMatrix` is a hardcoded global that holds the `love.graphics` Transform
+    // and `love_Position` is a hardcoded global variable that holds the position of a vertex, in px
+}
+
+#endif
+
+#ifdef PIXEL // fragment shader
+
+uniform sampler2D InstanceTexture; // texture of the instance mesh
+in vec2 FragmentTextureCoords;     // texture coords from vertex shader
+in vec4 FragmentColor;             // color from vertex shader
+
+out vec4 FinalColor; // final fragment color drawn to the screen at love_Position
+
+void pixelmain() { // custom fragment shader entry point
+    
+    // default behavior of `effect`, implemented manually
+    FinalColor = FragmentColor * texture(InstanceTexture, FragmentTextureCoords);
+}
+
+#endif
+```
+
+---
+
+# 2.2 Data Upload Performance
+
+# 2.2.1 Splitting Mesh using Mesh Attribute Attachment
+
+For heavy scenes with tens of thousands of vertices, the `setVertices` can be the bottleneck, as a potentially large amount of data needs to be uploaded from RAM to the GPU every frame. One of the main overheads of `setVertices` is that it needs to convert Lua-style memory (each number being a 32-bit float) to C-style memory (`uint32`, `float`, etc.) to prepare it for upload to the GPU. We can partially alleviate this by using `attachAttribute` in a way where attributes that will be uploaded often are in their own separate mesh which was created with buffer usage `dynamic`:
+
+```lua
+local attributeCount = -- ...
+
+-- create unchanging mesh
+local staticMeshFormat = {
+    {
+        location = 0,
+        name = "FirstAttribute",
+        format = -- ...
+    },
+
+    -- ...
+
+    {
+        location = attributeCount,
+        name = "LastAttribute",
+        format = -- ..
+    }
+}
+
+local staticMesh = love.graphics.newMesh(
+    staticMeshFormat, 
+    staticMeshData, 
+    "triangles", 
+    "static" -- static: mesh will not change
+)
+
+-- create changing mesh
+local variableMeshFormat = {
+    {
+        location = attributeCount + 1,
+        name = "FirstVariableAttribute",
+        format = -- ...
     },
     
     -- ...
 }
 
-local exoticMesh = love.graphics.newMesh(
-    vertexFormat, -- table of vertex attribute formats
-    vertexData,   -- mesh vertex data
-    "triangles",   -- draw mode (unused)
-    "dynamic"     -- graphics buffer usage
+local variableMesh = love.graphics.newMesh(
+    variableMeshFormat, 
+    variableMeshData, 
+    "triangles", 
+    "stream" -- stream: mesh will change often
+)
+
+-- automatically attach attributes
+for _, entry in ipairs(variableMeshFormat) do
+    staticMesh:attachAttribute(entry.name, variableMesh)
+end 
+```
+
+Now, if we want to upload new data to only the `variableMesh` part we can simply do:
+
+```lua
+-- in love.update
+variableMesh:setVertex(newVariableMeshData)
+```
+
+This saves upload of `staticMeshData` over using a single mesh, as opposed to two meshes with attachment.
+
+## 2.2.2 FFI Data Upload
+
+If even this proves not performant enough, for example if we do actually need to upload all mesh data every frame, we can get additional performance benefit by using FFI data. We consider the following mesh
+
+```lua
+local vertexFormat = {
+    {
+        location = 1,
+        name = "VertexID",
+        format = "uint16"
+    },
+    {
+        location = 0,
+        name = "VertexPosition",
+        format = "floatvec2"
+    }
+}
+
+local vertexData = {
+    { 200, 400, 0x0 },
+    { 150, 200, 0x2832 },
+    -- ...
+}
+
+local mesh = love.graphics.newMesh(
+    vertexFormat,
+    vertexData,
+    "triangles",
+    "dynamic"
 )
 ```
 
-LÖVE will initialize this mesh perfectly fine, `setVertices` works, and the mesh technically has a draw mode. If we actually try to draw this mesh however, LÖVE will not error, instead drawing a corrupted nonsense to the screen. This is because **we are using the wrong shader**. LÖVE not only has a default mesh format, but a **default shader** it will use when drawing a `love.Mesh` with no shader bound ( `love.graphics.getShader(nil)`). This shader is hardcoded to expect the default vertex format. For example, the default shader expects rgba, a `vec4` at attribute position #3 (`location = 2`), meaning it expects four floats for position #3, while we just gave it a single `uint32`. **To properly use and render custom vertex format meshes, we need a custom shader**.
-
-## 2.2 Custom Vertex Attribute Shader
-
-
+We note that this meshes vertex format has mixed types. The first attribute is two floats, while the second attribute is one uint32. We will create a Lua-side vertex data that is not a Lua table, but raw FFI memory. This saves the "turn Lua numbers into C numbers" step when uploading. The FFI byte data will have the following format:
 
 ```lua
+[
+    float, float, uint16, -- vertex #1
+    float, float, uint16, -- vertex #2
+    ...,
+    float, float, uint16  -- vertex #n
+]
+```
 
--- [[
-local function generateSpiralTris(n, turns)
-    n = n or 6
-    turns = turns or 2.5 -- how many full revolutions the spiral makes
+Where `n` is the total number of vertices. Both a C-style `float32` and a `uint32` contain 4 bytes of memory, we therefore need to allocate `n * (2 * sizeof(float32) + 1 * sizeof(uint32))` many bytes of data. To do this, we will use the new LÖVE 12 `ByteData` API, which also provides a safe way to set one vertices data using `setFloat` and `setUint32`:
 
-    -- 1) Build the spiral centerline points (n+1 of them), plus the shell's
-    --    center point. Radius grows with t so the spiral opens outward,
-    --    like a nautilus.
-    local center = { x = 0, y = 0 }
-    local spiralPts = {}
-    for i = 0, n do
-        local t = i / n
-        local angle = t * turns * math.pi * ((n-1) / n) -- full rotations, correctly scaled
-        local radius = t ^ 0.4
-        spiralPts[#spiralPts + 1] = {
-            x = radius * math.cos(angle),
-            y = radius * math.sin(angle),
-            t = t,
-        }
-    end
+```lua
+local mesh = love.graphics.newMesh(vertexFormat, vertexData, "triangles", "dynamic")
 
-    -- 2) Triangulate as a fan: (center, spiralPts[i], spiralPts[i+1])
-    local verts = {}
-    for i = 1, n do
-        local p0 = center
-        local p1 = spiralPts[i]
-        local p2 = spiralPts[i + 1]
+-- get number of vertices
+local nVertices = #vertexData
 
-        -- color: sweep hue along the spiral for a nice shell-banding look
-        local hue = (i - 1) / n
-        local r0, g0, b0 = rt.hsva_to_rgba(hue, 1.0, 1.0, 1)          -- near-white center
-        local r1, g1, b1 = rt.hsva_to_rgba(hue, 1.0, 1.0, 1)
-        local r2, g2, b2 = rt.hsva_to_rgba(hue, 1.0, 1.0, 1)
+-- get size of one vertex in bytes
+local vertexStride = mesh:getVertexBuffer():getElementStride() -- get size of one vertex in bytes
 
-        -- uv: radius -> v, angle fraction -> u
-        local u0, v0 = 0.5, 0.5
-        local u1, v1 = 0.5 + p1.x * 0.5, 0.5 + p1.y * 0.5
-        local u2, v2 = 0.5 + p2.x * 0.5, 0.5 + p2.y * 0.5
+-- allocate c byte data
+local vertexDataRaw = love.data.newByteData(nVertices * vertexStride)
 
-        verts[#verts + 1] = { p0.x, p0.y, u0, v0, r0, g0, b0, 1.0 }
-        verts[#verts + 1] = { p1.x, p1.y, u1, v1, r1, g1, b1, 1.0 }
-        verts[#verts + 1] = { p2.x, p2.y, u2, v2, r2, g2, b2, 1.0 }
-    end
+-- get size of one float, uint16 in bytes
+local floatSizeBytes, uint16SizeBytes = ffi.sizeof("float"), ffi.sizeof("uint16")
 
-    -- 3) Fit + center into a rectangle of size (love.graphics.getWidth(), love.graphics.getHeight())
-    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
-    for _, v in ipairs(verts) do
-        minX = math.min(minX, v[1])
-        maxX = math.max(maxX, v[1])
-        minY = math.min(minY, v[2])
-        maxY = math.max(maxY, v[2])
-    end
+for i = 1, nVertices do
+    local byteOffset = (i - 1) * vertexStride
+    -- set `VertexPosition` first component (float32)
+    vertexDataRaw:setFloat(
+        byteOffset + 0 * floatSizeBytes, -- byte offset, 0 components before
+        vertexData[i][1])
 
-    local W, H = love.graphics.getWidth(), love.graphics.getHeight()
-    local spanX, spanY = (maxX - minX), (maxY - minY)
-    -- avoid div-by-zero for degenerate n
-    spanX = spanX > 0 and spanX or 1
-    spanY = spanY > 0 and spanY or 1
+    -- set `VertexPosition` second component (float32)
+    vertexDataRaw:setFloat(
+        byteOffset + 1 * floatSizeBytes, -- byte offset, 1x float32 before
+        vertexData[i][2]
+    )
 
-    -- uniform scale so the whole spiral fits inside W x H, with a small margin
-    local margin = 0.9
-    local scale = math.min(W / spanX, H / spanY) * margin
-
-    local cx, cy = (minX + maxX) * 0.5, (minY + maxY) * 0.5
-    local ox, oy = W * 0.5, H * 0.5
-
-    for _, v in ipairs(verts) do
-        v[1] = (v[1] - cx) * scale + ox
-        v[2] = (v[2] - cy) * scale + oy
-    end
-
-    return verts
+    -- set `VertexID` first component (uint32)
+    vertexDataRaw:setUInt32(
+        byteOffset + 2 * floatSizeBytes, -- byte offset, 2x float32 before
+        vertexData[i][3]
+    )
 end
 
-local data = generateSpiralTris(18)
-local mesh = love.graphics.newMesh(data, "fan")
---
+-- upload mesh data
+mesh:setVertices(vertexDataRaw)
 ```
+
+Or, equivalently, using only luajit `ffi`, which has less overhead on the equivalent of `setFloat`, `setUint32` calls:
+
+```lua
+local nVertices = #vertexData
+local floatSizeBytes = ffi.sizeof("float")
+local uint32SizeBytes = ffi.sizeof("uint32_t")
+local vertexSizeBytes = 2 * floatSizeBytes + 1 * uint32SizeBytes
+
+-- allocate the buffer, this needs to be a `ByteData` for `setVertices`
+-- but we will modify the memory using only ffi
+local vertexDataRaw = love.data.newByteData(nVertices * vertexSizeBytes)
+
+-- cast to uint8_t*, to allow for byte-offset access
+local vertexDataRawPtr = ffi.cast("uint8_t*", vertexDataRaw:getFFIPointer())
+
+for i = 1, nVertices do
+    local byteOffset = (i - 1) * vertexSizeBytes
+
+    -- set `VertexPosition` first component (float32)
+    ffi.cast("float*", vertexDataRawPtr + byteOffset + 0 * floatSizeBytes)[0] = vertexData[i][1]
+
+    -- set `VertexPosition` second component (float32)
+    ffi.cast("float*", vertexDataRawPtr + byteOffset + 1 * floatSizeBytes)[0] = vertexData[i][2]
+
+    -- set `VertexID` first component (uint32)
+    ffi.cast("uint32_t*", vertexDataRawPtr + byteOffset + 2 * floatSizeBytes)[0] = vertexData[i][3]
+end
+
+mesh:setVertices(vertexDataRaw)
+```
+
+This `ffi`-only variant usually has better performance, but may not be available on certain systems. We need to make sure to keep a reference to `ByteData` as long as we use the mesh so the C memory does not get garbage collected.
+
+## 2.3 Using a Graphics Buffer for Instance Data
+
+When using `drawInstanced`, we used a second data mesh and `attachAttribute` with `perinstance` to create the data for the instances. LÖVE offers two more low-level options, the first of which we will look at are [Texelbuffers](<https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_buffer.txt>).
+
+For this, we do not need any custom vertex entry points, we can use `effect`. We create a regular mesh:
+
+```lua
+local vertexData = {
+    { 200, 400, 0, 0, 1, 1, 1, 1 }, -- xy uv rgba
+    -- ...
+}
+
+local mesh = love.graphics.newMesh(vertexData, "triangles", "dynamic")
+```
+
+We want the instance data to again have the following format:
+
+```lua
+local instanceDataFormat = {
+    {
+        location = 0,
+        name = "InstanceOffset",
+        format = "floatvec2"
+    },
+    {
+        location = 1,
+        name = "InstanceScale",
+        format = "float"
+    }
+}
+
+local instanceData = {
+    { 200, 400, 1 },
+    { 150, 200, 2.1 },
+    -- ...
+}
+```
+
+Before, we allocate a `love.Mesh` to store this data as follows. We no instead allocate a `love.GraphicsBuffer`:
+
+```lua
+-- before
+local instanceDataMesh = love.graphics.newMesh(instanceDataFormat, instanceData, "points", "stream")
+instanceMesh:attachAttribute("InstanceOffset", instanceDataMesh, "perinstance")
+instanceMesh:attachAttribute("InstanceScale", instanceDataMesh, "perinstance")
+
+-- now
+local instanceDataBuffer = love.graphics.newBuffer(instanceDataFormat, instanceData, {
+    shaderstorage = true,
+    usage = "dynamic" -- `stream` not available for `GraphicsBuffer
+})
+```
+
+Where we use `dynamic`, instead of `stream`. Dynamic is the best we can do for `GraphicsBuffer` in terms of upload speed.
+
+With this new buffer, we can refactor our vertex shader. We recall that before, when using `instanceDataMesh`, we did:
+
+```glsl
+// regular mesh attributes, not per-instance
+layout (location = 1) in vec2 VertexPosition;
+layout (location = 1) in vec2 VertexTextureCoords;
+layout (location = 2) in vec4 VertexColor;
+
+// per-instance attributes
+layout (location = 3) in vec2 InstanceOffset;
+layout (location = 4) in float InstanceScale;
+
+/* ... */
+
+void vertexmain() {
+    
+    // compute position from custom vertex attributes
+    vec2 position = VertexPosition;
+    position.xy *= InstanceScale;   // extract per-instance scale
+    position.xy += InstanceOffset;  // extract per-instance offset
+
+    /* ... */
+    
+    love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
+}
+```
+
+Instead, can now use a a GLSL-side buffer:
+
+```glsl
+// regular mesh attributes, not per-instance
+layout (location = 1) in vec2 VertexPosition;
+layout (location = 1) in vec2 VertexTextureCoords;
+layout (location = 2) in vec4 VertexColor;
+
+// per-instance attributes
+layout (location = 3) in vec2 InstanceOffset;
+layout (location = 4) in float InstanceScale;
+
+/* ... */
+
+void vertexmain() {
+    
+    // compute position from custom vertex attributes
+    vec2 position = VertexPosition;
+    position.xy *= InstanceScale;   // extract per-instance scale
+    position.xy += InstanceOffset;  // extract per-instance offset
+
+    /* ... */
+    
+    love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
+}
+```
+
+
+Instead, we now use a texelbuffer to store and access this data:
+
+```glsl
+// regular mesh attributes, not per-instance
+layout (location = 1) in vec2 VertexPosition;
+layout (location = 1) in vec2 VertexTextureCoords;
+layout (location = 2) in vec4 VertexColor;
+
+// no additional per-instance attribute, instead:
+uniform samplerBuffer instanceDataBuffer;
+
+// main: custom vertex shader entry point
+void vertexmain() {
+    // extract per-instance data
+    vec4 instanceData = texelFetch(instanceDataBuffer, gl_InstanceID);
+    vec2 instanceOffset = instanceData.xy;
+    float intsanceScale = instanceData.z;
+    
+    // as before:
+    vec2 position = VertexPosition;
+    position.xy *= InstanceScale;
+    position.xy += InstanceOffset;
+
+    /* ... */
+    
+    love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
+}
+```
+
+Or, using the default shader entry point:
+
+```glsl
+// no manual vertex attribute declarations
+
+// no additional per-instance attribute, instead:
+uniform samplerBuffer instanceDataBuffer;
+
+// main: default vertex shader entry point
+vec4 position(mat4x4 transformProjectionMatrix, vec4 vertexPosition) {
+    // extract per-instance data
+    vec4 instanceData = texelFetch(instanceDataBuffer, gl_InstanceID);
+    vec2 InstanceOffset = instanceData.xy;
+    float instanceScale = instanceData.z;
+
+    // as before:
+    vertexPosition.xy *= instanceScale;
+    vertexPosition.xy += InstanceOffset;
+
+    /* ... */
+
+    return transformProjectionMatrix * vec4(vertexPosition.xy, 0.0, 1.0);
+}
+```
+
+Note that for this to work, the mesh drawn needs to have the default vertex attribute formats, meaning it should be allocated like
+
+```lua
+local mesh = love.graphics.newMesh(
+    -- no custom format specified: use default
+    vertexData,  -- expects { xy uv rgba } vertex format
+    drawMode, 
+    bufferUsage
+)
+```
+
+We now turn our attention on how to actually assing the texel buffer `instanceDataBuffer`. To do this, we use a `love.GraphicsBuffer`, which takes the same vertex format as meshes do:
+
+```lua
+local instanceDataFormat = {
+    {
+        location = 0,
+        name = "VertexPosition",
+        format = "floatvec2"
+    },
+    {
+        location = 1,
+        name = "VertexID",
+        format = "uint32"
+    }
+}
+
+local instanceData = {
+    { 200, 400, 0x0 },
+    { 150, 200, 0x2832 },
+    -- ...
+}
+
+local instaceDataBuffer = 
+```
+
+
+# 2.4 Using a Texel Buffer for Instance Data
+
+
+
