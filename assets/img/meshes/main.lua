@@ -6,7 +6,7 @@ ffi = require "ffi"
 local BUFFER_MODE_USE_VERTEX_BUFFER = "vertexbuffer"
 local BUFFER_MODE_USE_TEXEL_BUFFER = "texelbuffer"
 local BUFFER_MODE_USE_STORAGE_BUFFER = "storagebuffer"
-local BUFFER_MODE = BUFFER_MODE_USE_VERTEX_BUFFER
+local BUFFER_MODE = BUFFER_MODE_USE_STORAGE_BUFFER
 
 -- upload mode, decides whether to use lua tables, `ByteData` or ffi data to upload the instance data
 local DATA_MODE_USE_TABLES = "table"
@@ -242,11 +242,10 @@ layout (location = 1) in vec2 VertexTextureCoords; // drawMesh attribute #2
 layout (location = 2) in vec4 VertexColor;         // drawMesh attribute #3
 
 // data mesh attributes
-layout (location = 3) in uint InstanceIsVisible; // perInstanceDataBuffer attribute #1
-layout (location = 4) in vec2 InstanceOffset;    // perInstanceDataBuffer attribute #2
-layout (location = 5) in float InstanceScale;    // perInstanceDataBuffer attribute #3
+layout (location = 3) in vec2 InstanceOffset;    // perInstanceDataBuffer attribute #1
+layout (location = 4) in float InstanceScale;    // perInstanceDataBuffer attribute #2
+layout (location = 5) in float hue;              // perInstanceDataBuffer attribute #3
 
-out float FragmentIsVisible;     // whether to discard the entire shape
 out vec2 FragmentTextureCoords; // final interpolated texture coordinates, for fragment shader
 out vec4 FragmentColor;         // final interpolated color, for fragment shader
 
@@ -260,10 +259,7 @@ void vertexmain() { // custom vertex shader entry point
     FragmentTextureCoords = VertexTextureCoords; // xy = uv
 
     // set color to default value
-    FragmentColor = ConstantColor * VertexColor; // rgba
-
-    // set whether the instance is visible
-    FragmentIsVisible = float(InstanceIsVisible);
+    FragmentColor = ConstantColor * vec4(VertexColor.rgb, VertexColor.a * hue);
 
     // set position
     love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
@@ -275,7 +271,6 @@ void vertexmain() { // custom vertex shader entry point
 
 #ifdef PIXEL // fragment shader
 
-in float FragmentIsVisible;    // whether to discard from vertex shader
 in vec2 FragmentTextureCoords; // texture coords from vertex shader
 in vec4 FragmentColor;         // color from vertex shader
 
@@ -284,9 +279,6 @@ out vec4 FinalColor; // final fragment color drawn to the screen at love_Positio
 uniform sampler2D InstanceTexture; // texture of the instance mesh
 
 void pixelmain() { // custom fragment shader entry point
-    // make shape invisible
-    if (FragmentIsVisible == 0.0) { discard; }
-
     // default behavior of `effect`, implemented manually
     FinalColor = FragmentColor * texture(InstanceTexture, FragmentTextureCoords);
 }
@@ -304,15 +296,14 @@ layout (location = 0) in vec2 VertexPosition;
 layout (location = 1) in vec2 VertexTextureCoords;
 layout (location = 2) in vec4 VertexColor;
 
-out float FragmentIsVisible;
 out vec2 FragmentTextureCoords;
 out vec4 FragmentColor;
 
 // new; storage buffer
 struct InstanceData {
-    uint isVisible;
     vec2 offset;
     float scale;
+    float hue;
 };
 
 readonly layout(std430, binding = 0) buffer perInstanceDataBuffer {
@@ -327,8 +318,7 @@ void vertexmain() {
     position.xy += instanceData.offset;
 
     FragmentTextureCoords = VertexTextureCoords;
-    FragmentColor = ConstantColor * VertexColor;
-    FragmentIsVisible = instanceData.isVisible;
+    FragmentColor = ConstantColor * vec4(VertexColor.rgb, VertexColor.a * instanceData.hue);
 
     love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
 }
@@ -337,7 +327,6 @@ void vertexmain() {
 
 #ifdef PIXEL
 
-in float FragmentIsVisible;
 in vec2 FragmentTextureCoords;
 in vec4 FragmentColor;
 
@@ -345,7 +334,6 @@ out vec4 FinalColor;
 uniform sampler2D InstanceTexture;
 
 void pixelmain() {
-    if (FragmentIsVisible == 0.0) { discard; }
     FinalColor = FragmentColor * texture(InstanceTexture, FragmentTextureCoords);
 }
 
@@ -362,7 +350,6 @@ layout (location = 2) in vec4 VertexColor;
 
 // no per-instance attributes
 
-out float FragmentIsVisible;
 out vec2 FragmentTextureCoords;
 out vec4 FragmentColor;
 
@@ -371,17 +358,16 @@ uniform samplerBuffer perInstanceDataBuffer;
 
 void vertexmain() {
     vec4 instanceData = texelFetch(perInstanceDataBuffer, gl_InstanceID);
-    float instanceIsVisible = instanceData.x;
-    vec2 instanceOffset = instanceData.yz;
-    float instanceScale = instanceData.w;
+    vec2 instanceOffset = instanceData.xy;
+    float instanceScale = instanceData.z;
+    float instanceHue = instanceData.w;
 
     vec2 position = VertexPosition;
     position.xy *= instanceScale;
     position.xy += instanceOffset;
 
     FragmentTextureCoords = VertexTextureCoords;
-    FragmentColor = ConstantColor * VertexColor;
-    FragmentIsVisible = instanceIsVisible;
+    FragmentColor = ConstantColor * vec4(VertexColor.rgb, VertexColor.a * instanceHue);
 
     love_Position = TransformProjectionMatrix * vec4(position.xy, 0.0, 1.0);
 }
@@ -390,7 +376,6 @@ void vertexmain() {
 
 #ifdef PIXEL
 
-in float FragmentIsVisible;
 in vec2 FragmentTextureCoords;
 in vec4 FragmentColor;
 
@@ -398,7 +383,6 @@ out vec4 FinalColor;
 uniform sampler2D InstanceTexture;
 
 void pixelmain() {
-    if (FragmentIsVisible == 0.0) { discard; }
     FinalColor = FragmentColor * texture(InstanceTexture, FragmentTextureCoords);
 }
 
