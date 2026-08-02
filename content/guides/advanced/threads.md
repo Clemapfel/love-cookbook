@@ -4,17 +4,19 @@ authors: [clemapfel]
 date: 2025-07-14
 ---
 
-In this chapter, we'll learn how to use **`love.Thread`**. This is not a guide on parallel programming in general, rather it only introduces concepts relevant to LÖVE specifically.
+In this chapter, we'll learn how to use **Threads**, which allow for running separate Lua programs at the same time. This is not a guide on parallel programming in general, but it does introduce concepts relevant to LÖVE specifically for readers who may be unfamiliar with the topic.
 
-Despite Lua not support any threading whatsoever, the LÖVE authors went out of their way to implement them anyway, as threading can be vital to modern game engines. While it is nice the exist at all, LÖVE threads come with heavy restrictions when compared to languages such as [C++](<https://cppreference.com/>) or [Julia](<https://docs.julialang.org/en/v1/>). In return, however, using (and learning to use) LÖVE threads is a much simpler topic than those languages, allowing users with very little or no experience in parallel programming to still achieve relevant performance gains in their games.
+Because Lua does not support threading in any way, LÖVE implements internally. This was necessary, as threading is vital to modern high-performance game engines. Because of their bespoke nature, LÖVE threads come with heavy restrictions when compared to languages such as [C++](<https://cppreference.com/>) or [Julia](<https://docs.julialang.org/en/v1/>). In return, using (and learning to use) LÖVE threads is much simpler than it would be in that language. This allows users with very little or no experience in parallel programming to still achieve relevant performance gains in their games. This chapter is aimed at that audience.
 
 #### In this chapter we will learn:
 
-+ What a thread is
-+ Nomenclature around threads such as *concurrency*, *asynchronicity*, *main*, *worker*, *channel*
-+ Why concurrency is non-deterministic 
-+ How to transmit data between threads
-+ How to implement a fully functioning thread pool
++ what a thread is
++ nomenclature around threads such as *concurrency*, *asynchronicity*, *main*, *worker*, *channel*, and *synchronization*
++ why concurrency is non-deterministic
++ how to create a thread
++ how to transmit data between threads
++ how to implement a fully functioning thread pool
++ how to safely close a thread
 
 ---
 
@@ -29,6 +31,7 @@ Despite Lua not support any threading whatsoever, the LÖVE authors went out of 
     - [2.0.2 Creating a Named Channel](#202-creating-a-named-channel)
 - [2.1 Transmitting Data](#21-transmitting-data)
 - [2.2 Allowed Data Types](#22-allowed-data-types)
+- [2.3 Common Use Cases for Thread](#23-common-use-cases-for-thread)
 - [3.0 A Practical Example](#30-a-practical-example)
 - [4.0 Addendum](#40-addendum)
     - [4.1 Using a Channel as a Mutex](#41-using-a-channel-as-a-mutex)
@@ -38,20 +41,23 @@ Despite Lua not support any threading whatsoever, the LÖVE authors went out of 
 
 # 1.0 What is a Thread?
 
-Every computer has a **CPU**, which is the physical chip on the motherboard that does all the computation. Modern CPUs have multiple **cores**. We can think of cores as their own separate tiny CPUs, even though they have access to the same RAM and run right next to each other. Multi-core CPUs exhibit **[true parallelism](<https://en.wikipedia.org/wiki/Parallel_computing>)**, which means that two computations can happen on the same CPU, on different cores, at literally the same instant in time. Programs running on multiple cores at once are called **[non-concurrenct](<https://en.wikipedia.org/wiki/Concurrency_(computer_science)>)**. This is in opposition to **[concurrency, or pseudo-parallelism](<https://en.wikipedia.org/wiki/Preemption_(computing)>)**, which is what normal Lua code (and Luas native `coroutines`) are. We need LÖVE if we want true parallelism, we cannot achieve it with just Lua.
+Every computer has a **CPU**, which is the physical chip on the motherboard that does all the computation. Modern CPUs have multiple **cores**. We can think of cores as their own separate tiny CPUs, even though they have access to the same memory, called **RAM**, and run right next to each other. Multi-core CPUs exhibit **[true parallelism](<https://en.wikipedia.org/wiki/Parallel_computing>)**, which means that two computations can happen on the same CPU, on different cores, at literally the same instant in time. Programs running on multiple cores at once are called **[non-concurrenct](<https://en.wikipedia.org/wiki/Concurrency_(computer_science)>)**. This is in opposition to **[concurrency](<https://en.wikipedia.org/wiki/Preemption_(computing)>)**, which is what normal Lua code (and Luas native `coroutines`) are. We need LÖVE if we want true parallelism, we cannot achieve it with just Lua.
 
 # 1.1 Glossary, Creating a Thread
 
-From this point onward, when we say "thread", we mean a truly asynchronous thread object, created via `love.Thread`. When we say "routine", we mean a a non-concurrently running program, which Lua's `coroutine` does fall into, but for this chapter, not all "routines" are Lua coroutines.
+From this point onward, when we say "thread", we mean a truly *asynchronous* (non-concurrent) thread object, created via `love.Thread`. When we say "routine", we mean a concurrently running program, which Lua's `coroutine` falls into. For this chapter, not all "routines" are Lua coroutines, a regular Lua script will also be called a routine.
 
 + Threads are asynchronous, routines are synchronous
-+ Threads run concurrently, routines run non-concurrently
++ Threads run non-concurrently, routines run concurrently
 + Threads exhibit parallelism, routines do not
 
-With the definitions out of the way, let's create a thread along with a routine and see what happens:
+> [!NOTE]
+> Confusingly, Lua itself calls it's coroutines "threads". If we do `print(type(coroutine.create())`, Lua will print the string "thread". Despite this, **coroutines are not true threads**.
+
+With the definitions out of the way, let's create a thread along with a routine, and just see what happens:
 
 ```lua
--- create a thread
+-- create a thread, its code is a multi-line string
 local thread = love.thread.newThread([[
     local args = ...
     print("Thread says: ", ...);
@@ -75,22 +81,33 @@ routine("begone")
 Thread says: Routine says: 		begonehello
 ```
 
-Here, we created a `love.Thread` using its constructor, which either takes a filename or multi-line string as the argument. This thread is idle when created, we have to start it manually using `start`, which can optionally take arguments that are forwarded to the thread and accessible via `...` Like shown. We provide the string `"hello"` as the argument for the thread. We also create a lua function, which is a routine, then, to "start" it, we simply call the function, providing `"begone"` for the vararg.
+Before we get to this very weird output, let's first do a code walk. First, we created a `love.Thread` using its constructor `love.thread.newThread`, which either takes a filename (such as `common/player/player_thread.lua`), or a multi-line string as the first argument. The **thread is idle when created**, we have to start it manually using `start`. This member function can optionally take a number of arguments that are then forwarded to the thread, accessible via `...` inside the threads code, as shown. We provided the string `"hello"` as the argument for `start`. 
 
-The output above is not a typo, that is the actual console output that the above program *can* exhibit. Why is that, and why does it only happen sometimes?
+For comparison, we also create a Lua function - which is a routine by definition. Then, to "start" the routine, we simply call the function `routine("begone")`, providing `"begone"` as the argument. 
 
-When we run a Lua program, it is ran in what we will call the "main" thread, or **main**. Any other thread we will call a **worker**. Note that both main and all workers are threads. All programs, including LÖVE, run in main by default. Any program not using any threads at all still runs in one thread: main. Any two threads will run concurrently to each other, meaning the CPU is capable of performing operations for both main and a worker at the same time, as well as for a worker and worker. However, within the same theads, execution is synchronous. 
+The output above is not a typo or malformatted. It is the the actual console output that the above program *can* exhibit. Why is that? And why "can", why does it not always print the same thing?
 
-Given this, let's try to understand why we see the above output. We start a worker, `thread`, then call a function in main, `routine`. From this point onwards, the CPU is running through both `routine` in main and the code of `thread` in a worker **concurrently**. While main is printing `Routine says: "begone"`, it just so happened that our worker `thread` was printing `Thread says: hello` in the middle of main's printing. The two prints became interleaved, resulting in the garbled output.
+When we run a Lua program, it is ran in what we will call the "main" thread, or **main**. Any other thread we will call a **worker**. Note that both main and all workers are threads. All programs, including LÖVE, run in the main thread by default. In this situation, there is only a single thread, main, and therefore no concurrency is exhibited. Any program not using threads still runs in one thread: main.
 
-If we run the above program again, most of the time it will behave as expected, printing
+ Once we have a thread in additiona to main, they will run concurrently with each other, meaning the CPU is capable of performing operations as instructed by main and worker at the same time. However, within the same theads, execution is synchronous.
+
+With this in mind, let's try to understand why we see the above output. We started a worker, `thread`. From this point onwards, this worker will run through it's code. Right after starting worker from main, we continue executing code in main. the CPU is running through both `routine` in main and `thread` in the worker **concurrently**. While main is printing `Routine says: "begone"`, `thread` is printing `Thread says: hello`. Both objects push letters to the operating systems console, resulting in the The two `print`s output to become interleaved.
+
+If we run the above program again, most of the time it will behave as expected, printing:
 
 ```
 True Thread says: hello
 Fake Thread says: begone
 ```
 
-Why is that? Let's run another experiment:
+But sometimes also
+
+```
+True Thread says: hello
+Fake Thread says: begone
+```
+
+Why can the order be different? Let's run another experiment:
 
 ## 1.2 Scheduling
 
@@ -111,8 +128,9 @@ threadA:start(n_calls, "A") -- print 20 As
 threadB:start(n_calls, "B") -- print 20 Bs
 ```
 
-Here we create two workes, one that prints `A` twenty times, and one that prints `B` twenty times. We start both as closely together in time as we can.
-Running the above program four times, it prints the following, where each run is a separate invocation of the above lua script.
+Here we create two workes, one that prints `A` twenty times, and one that prints `B` twenty times. We start both as closely together in time as we can from main. After wards, main has nothing to do but LÖVE keeps running. Next to main, both workers start printing their letters.
+
+Running the above program four times, it prints the following, where each run is a separate invocation of the above Lua script:
 
 ```
 AAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBB
@@ -127,13 +145,16 @@ ABABABABBAAABBABBABBBABBABABABAAAAAAABBB
 BBBBBBBBBBBBBBBBBBBBAAAAAAAAAAAAAAAAAAAA
 ```
 
-Clearly both threads exhibit concurrency and the output is interleaved as expected, but why is the order different every time we run the program?
+Clearly both threads exhibit concurrency and the output is interleaved as before, but why is the order different every time we run the program?
 
-While the CPU *can* run things at exactly the same instance in time, it does not always do so. Which core gets which operations is up to a lot of fancy technology, including the **CPU [scheduler](<https://en.wikipedia.org/wiki/Scheduling_(computing)>)**. This is a component of the chipset firmware which basically does the following task: when given a list of instructions, choose which instruction should run on which core, at what time, in what order. On multi-core CPUs, which core is chosen for which instruction is entirely non-deterministic. We, as programmers, cannot choose and have no way to influence which core which worker runs on, though a routine within itself will usually run on the same core. This is one of the main challenges with parallel computing, as it can make debugging a nightmare. If our program exhibits a bug 1% of the time we run it, and there is no way to reproduce a certain [order of operations](<https://en.wikipedia.org/wiki/Out-of-order_execution>) to trigger that 1% bug, the programmer needs to rely on their skill, experience, or diligent testing to verify a program will run correctly 100% of the time in parallel.
+While the CPU *can* run things at exactly the same instance in time, it does not always do so. Which core gets which operations is up to a lot of fancy technology, including the **CPU [scheduler](<https://en.wikipedia.org/wiki/Scheduling_(computing)>)**. This is a component of the chipset firmware which basically does the following task: when given a list of instructions, choose which instruction should run on which core, at what time, in what order. On multi-core CPUs, which core is chosen for which instruction is entirely **non-deterministic**. We, as programmers, cannot choose and have no way to influence which core which worker runs on. This is one of the main challenges with parallel computing, as it can make debugging a nightmare. If our program exhibits a bug 1% of the time we run it depending on the scheduler order, then there is no way to reproduce a certain [order of operations](<https://en.wikipedia.org/wiki/Out-of-order_execution>) to trigger that 1% bug every time. We need to rely on our skill, experience, and diligent testing to verify a program will run correctly 100% of the time - even in parallel.
 
 ## 1.3 Sharing Memory
 
-So far, we let love compile a lua program from a string that is completely self-contained. What happens when we share code between main and a worker? We create two new files `module.lua`, and `worker.lua`:
+So far, we let LÖVE compile a Lua program from a string. So far, the workers routines were completely self-contained. They may have been printing to the same console, but they weren't interacting with each other in any way. What happens when we *share* code between main and a worker? Let's create two new files `module.lua`, and `worker.lua`:
+
+> [!TIP]
+> From this point onwards, snippets are all **separate files**. The filename is printed in larger font above each snippet. If we want to run the following code ourselves for example, we need to create three separate new files `module.lua`, `worker.lua`, and `main.lua`, then paste the snippets' content into their respective Lua script.
 
 ##### `module.lua`
 ```lua
@@ -143,31 +164,38 @@ Module.initialized = false
 
 -- add an initialize function
 function Module.initialize()
+    -- print notice to the console
     print("main: initialized module\n")
+  
+    -- set the module-wide, global `initialized`
     Module.initialized = true
 end
 ```
 ##### `worker.lua`
 ```lua
--- if the module is not yet initialized, initialize it
+-- check the globla Module.initialize
 if not Module.initialized then
+    -- if not initialized, do it from `worker.lua`
     Module.initialize()
+  
+    -- print notice that worker did the initialization
     print("worker: initialized module\n")
 else
+    -- otherwise print that worker did not need to call `initialize`
     print("worker: module already initialized\n")
 end
 ```
 ##### `main.lua`
 ```lua
 require "module" -- load "module.lua"
-assert(Module ~= nil) -- passes
+assert(Module ~= nil) -- passes, module is now a global
 
 -- create a thread, loads `worker.lua`
 local thread = love.thread.newThread("worker.lua")
 thread:start() -- start the thread
 ```
 
-Here, we create a global table `Module` that is supposed to be shared among all files. We then create a thread using a file instead of a string this time, then start it.
+Here, we create a global table `Module` that is supposed to be shared among all files. We then create a single worker using a file instead of a string this time, then start it. The intended behavior is for the worker to initialize the module in main.
 
 What will this print?
 
@@ -179,7 +207,9 @@ stack traceback:
 	worker.lua:1: in main chunk
 ```
 
-We actually get an error. The code in the worker throws because `Module` is undefined. This is because of one of the major limitations of threads in LÖVE: threads **cannot share memory with each other**. More specifically, any object available in thread A's scope will not be available in any other thread, including main. Some may think that the simple fix is to manually include the module for each thread:
+We actually get an error. The code in the worker throws because `Module` is undefined. This is because of one of the major limitations of threads in LÖVE: threads **cannot share memory with each other**. More specifically, any object available in a worker's scope will not be available in any other thread, including main. 
+
+We may think that the simple fix is to manually include the module for each thread:
 
 ##### `worker.lua`
 ```lua
@@ -219,16 +249,19 @@ else
 end
 ```
 
-Where we used `thread:isRunning` to check if the thread is currently mid-execution, `love.timer.sleep` causes main to do nothing for one frame, then check again if the thread is running. This technique is called a [*busy waiting*](<https://en.wikipedia.org/wiki/Busy_waiting>) and **is not recommended in any situation**, as it pauses main completely, making it unable to do anything but wait. If we reduce the `sleep` duration, it spikes the CPU core main is running on to 100%, as it checks as often as possible per CPU tick. If we do this in an actual game, it would tank the frame rate. We will learn a much better solution later in this chapter, but for now this is a crude way to wait for the thread to be done.
+Where we used `thread:isRunning` to check if the thread is currently mid-execution, and `love.timer.sleep` to wait one frame before checking again.
 
-Now that we have included the module manually in the worker, will the worker be able to access the module?
+>[!CAUTION]
+> `love.timer.sleep` causes main to do nothing for one frame, then check again if the thread is running every loop iteration. This technique is called a [*busy waiting*](<https://en.wikipedia.org/wiki/Busy_waiting>) and **is not recommended in any situation**. It pauses main completely, making it unable to do anything but wait. cause the game to freeze for that duration. If don't `sleep` at all, main will spike the CPU core usage to 100%, as it checks as often as possible, doing as many while loop iterations as it can. We will learn a much better solution later in this chapter, but for now this is a crude way to "wait" for a thread to be done.
+
+Now that we have included the module manually in the worker, will the worker be able to access the module? It prints:
 
 ```
 main: initialized module
 worker: initialized module
 ```
 
-We see that this time the strings are not interleaved, so our crude synchronization worked. However, we see that both the worker and main encountered an uninitialized module. This means, the global variable `Module` *exists twice*, entirely separately in both main's and the worker's scope. **Threads do not share memory, they do not share globals, they don't even share included modules**. Any two threads, be it two workers, or a worker and main, are completely separate environments.
+We see that this time the strings are not interleaved, so our crude synchronization worked. However, we see that both the worker and main encountered an uninitialized module. This means the global variable `Module` *exists twice*, entirely separately in both main's and the worker's scope. **Threads do not share memory, they do not share globals**. They don't even share `require`d modules. Any two threads, be it two workers, or a worker and main, are completely separate environments.
 
 *Nothing* is shared, not even LÖVE modules:
 
@@ -263,11 +296,11 @@ worker.lua:2: attempt to index field 'timer' (a nil value)
 stack traceback:
 ```
 
-`love.timer` is not available in `worker.lua`. For any thread other than main, we need to manually include the love modules like this:
+`love.timer` is not available in `worker.lua`. For any thread other than main, we need to manually include the LÖVE modules like this:
 
 ```lua
-require "love.timer"
-require "love.math"
+require "love.timer" -- manually include timer
+require "love.math"  -- manually inlcude math
 
 print("thread will sleep")
 love.timer.sleep(love.math.random())
@@ -280,16 +313,16 @@ thread woke back up
 
 Any module other than `love.thread` itself must be included manually in worker scope.
 
-> [!CAUTION]
-> Not all LÖVE modules are available in workers. Most of `love.graphics` and `love.window` is unable to be used. This **includes creating textures, drawing to canvases, or to the main window**. Any kind of drawing or window manipulation from within a worker is impossible in LÖVE 12.0 and earlier versions.
+> [!WARNING]
+> Not all LÖVE modules are available in workers. Most of `love.graphics` and `love.window` is unable to be used at all. This **includes creating textures, drawing to canvases, or to the window**. Any kind of drawing, graphics-state, or window manipulation from within a worker is impossible in LÖVE 12.0 and all earlier versions.
 
 ---
 
 ## 2.0 Channels and Synchronizations
 
-If threads truly had no way to interface with each other, they'd be close to useless. Luckily, LÖVE does provide a mechanism to at least send data back and forth between threads. This is the [`Channel`](<https://love2d.org/wiki/Channel>).
+Since threads have completely separate Lua environments, if they truly have no way to interface with each other, wouuldn't they be close to useless.? Luckily, LÖVE *does* provide a mechanism to at least **send data back and forth between threads**: [`love.Channel`](<https://love2d.org/wiki/Channel>).
 
-To access a channel from main or a worker, we can either share it using the varargs at the top of the thread's file (cf. Section 1.1), or we can use `love.thread.getChannel`, which creates a new named channel if it does not yet exist, or retrieves it if it does:
+To access a channel from main or a worker, we can either share it using the varargs at the top of the thread's file (cf. [Section 1.1](#11-glossary-creating-a-thread))), or we can use `love.thread.getChannel`, which creates a new named channel if it does not yet exist. If does exit, `getChannel` retrieves it without reinitializing.
 
 ### 2.0.1 Creating an Unnamed Channel
 
@@ -302,7 +335,7 @@ local worker2main = love.thread.newChannel()
 -- create a thread
 local worker = love.thread.newThread("worker.lua")
 
--- transmit the channels using `start`
+-- transmit the channels using `start` varargs
 worker:start(main2worker, worker2main)
 ```
 ##### `worker.lua`
@@ -323,7 +356,7 @@ local worker2main = love.thread.getChannel("worker2main")
 
 -- create a thread
 local worker = love.thread.newThread("worker.lua")
-worker:start() -- start called without args this time
+worker:start() -- start called without varargs this time
 ```
 ##### `worker.lua`
 ```lua
@@ -337,15 +370,15 @@ assert(main2worker:typeOf("Channel") and worker2main:typeOf("Channel"))
 
 ## 2.1 Transmitting Data
 
-Now that we have our channels accessible in both main and the worker, we can send data between them using `Channel:push`. We will call these pieces of data a "message" for reasons that will become obvious later.
+Now that we have our channels accessible in both main and the worker, we can send data between them using `Channel:push`. We will call these pieces of data a **"message"** for reasons that will become obvious later.
 
-We can retrieve messages using `demand`, which **will sleep the current thread (main or a worker) until a message is found and retrieved**, or `pop`, which **does not sleep** the current thread, but may return nil if the channel currently has no messages.
+We can retrieve messages using `demand`, which **will sleep the current thread (main or a worker) until a message is found and retrieved**, or `pop`, which **does not sleep** the current thread. Pop returns `nil` if the channel currently has no messages.
 
 In the following code example, we will add a label to each section which will make it easier to discuss:
 
 ###### `main.lua`
 ```lua
--- [MAIN_A] start the main execution
+-- [MAIN_A] start main, initialize two channels and a worker
 local main2worker = love.thread.getChannel("main2worker")
 local worker2main = love.thread.getChannel("worker2main")
 
@@ -380,31 +413,33 @@ worker2main:push("roger")
 
 -- [WORKER_E] exit worker
 ```
-We will trace through this carefully, as understanding the expected order of execution here is crucial. First, we notice that we have two **blocking calls**, with `demand`.
+We will trace through this carefully, as understanding the expected order of execution here is crucial. First, we notice that we have two **blocking calls**, using `demand`.
 
-A blocking call will completely halt execution of that thread. If we do this in main, **our game will completely freeze**, until a message is retrieved. If we do this in a worker, that worker will freeze until a message comes in. The latter does not affect our game or our game's framerate, since main and worker are completely separate. For the former, if a response message never comes in, our game could completely lock up and the user's OS will prompt them to kill the process. For reasons like this, working with threads can be dangerous and hard to debug, even in LÖVE. If we do not want to block the current thread, we can use `pop`, which returns immediately.
+A blocking call will completely halt execution of that thread, just like `love.timer.sleep` would. Except instead of a hardcoded duration, the thread will automatically exit sleep the moment a message arrives. 
 
-This the general program flow:
+Because the sleeping part works just like `love.timer.sleep`, if we do `demand` in main for a duration longer than a frame, **our game will completely freeze until a message is retrieved**. If we `demand` inside a worker, that worker will also freeze until a message comes in. However this does not affect main in any way, and thus does not affect our game's framerate. Main and worker are completely separate, if worker sleeps, main does not need to aswell. If we accidentally `demand` in main with no message coming in, our game could completely lock up. The user's OS will event prompt them to kill the process, as it thinks our game has just crashed or frozen. For reasons like this, working with threads can be dangerous - even in LÖVE. `demand`ing in main should be done with the utmost care, almost always main should  `pop`, checking every frame if a message has arrived, as opposed to sleeping forever until one does. `pop` returns immediately, and if this message i `nil`, we simply continue with the rest of the game logic that frame, trying to `pop` again next frame.
 
-```
-MAIN_A: start main
-MAIN_B: send main->worker
-MAIN_C: wait for worker->main
-
-WORKER_A: start worker
-WORKER_B: wait for main->worker message
-WORKER_C: receives main->worker
-WORKER_D: send worker->main
-WORKED_E: exits
-
-MAIN_D: receives worker->main
-MAIN_E: exits
-```
-
-While this is how we conceptualize the above program, remember that we cannot guarantee order between threads. The above could run in the following order:
+Back to our code example, this is the general program flow:
 
 ```
 MAIN_A: start main
+MAIN_B: send main->worker ("do you copy")
+MAIN_C: wait for worker->main ("roger")
+
+WORKER_A: start worker
+WORKER_B: wait for main->worker ("do you copy")
+WORKER_C: receive main->worker ("do you copy")
+WORKER_D: send worker->main ("roger")
+WORKED_E: exit
+
+MAIN_D: receive worker->main ("roger")
+MAIN_E: exit
+```
+
+While this is how we conceptualize the above program, remember that **we cannot guarantee order between threads**. The above *could* run in the following order:
+
+```
+MAIN_A: start main
 WORKER_A: start worker
 WORKER_B: wait for main->worker message
 MAIN_B: send main->worker
@@ -416,19 +451,23 @@ WORKED_E: exits
 MAIN_E: exits
 ```
 
-Or any other permutation, as long as `MAIN_A` comes before `MAIN_B`, and `MAIN_C`. And also, separately, `WORKER_A` comes before `WORKER_B`, etc.
+Or any other permutation, as long as `MAIN_A` comes before `MAIN_B`, and `MAIN_C`, and, separately, `WORKER_A` comes before `WORKER_B`, `WORKER_C` etc. Inside the same threads, execution is non-concurrent.
 
-While this is just like our `AABABAB` example above, with this blocking `demand` setup we can guarantee one thing: the worker will wait for a message to come in before exiting, and main will wait for a message to come back before exiting. This pattern is well-suited and idiomatic **synchronization**: we made sure both main and worker are on the same page at least at one point in time. `Channel` is the only method for synchronization in LÖVE. Luckily, it is powerful enough to create some semi-sophisticated systems, as we will do in section 3.
+While this is just like our `AABABAB` example before, with this blocking setup utilizing `demand`, we can actually guarantee one thing in terms of order. The worker will wait for a message to come in before exiting, and main will wait for a message to come back before exiting. This pattern is well-suited and idiomatic **synchronization**: we made sure both main and worker at least read each others messages and used them (`assert` above). Both of these are guaranteed to happen before main exits. `Channel` is the only method for synchronization in LÖVE. It is powerful enough to create some semi-sophisticated systems, as we will see in section 3.
 
 ## 2.2 Allowed Data Types
 
-One huge limitation on `Channel`s is that the type of data we are allowed to send between threads is limited in the following way:
+So far we only send strings between threads. One huge limitation on `Channel`s is that the type of data we are allowed to send between threads is limited in the following way:
 
-Data can only be transmitted if it is a `string`, `boolean`, `number`, a `love.Object`, `nil`, or `table` that only contain `strings`, `boolean`s, `number`s or `love.Object`s. This means we **cannot send functions**, and we **cannot send tables that contain functions** between threads. This rules out most OOP-based Lua objects. Other examples of types of data we cannot send are `userdata`, `coroutine`s, and LuaJIT ffi-allocated objects, such as the pointer returned by `ffi.new`. 
+Data can only be transmitted if it is a `string`, `boolean`, `number`, a `love.Object`, `nil`, or a `table` that only contain `strings`, `boolean`s, `number`s or `love.Object`s. This means we **cannot send functions**, and we **cannot send tables that contain functions** between threads. This rules out most OOP-based Lua objects which may contain functions as members. Other examples of types of data we cannot send are `userdata`, `coroutine`s, and LuaJIT ffi-allocated objects, such as the pointer returned by `ffi.new`. 
 
-Let's go through some examples to make these rules clearer:
+>[!WARNING]
+>Even though we can technically send graphics objects such as `love.Canvas` and `love.Canvas`, we **cannot use them in any way inside a worker**. Any `love.graphics` related object is off-limits, including but not limited to `love.Image`, `love.Graphics`, `love.SpriteBatch`, `love.Particlesystem`, `love.Mesh`, and `love.GraphicsBuffer`. If we try to use these objects, LÖVE may crash or error.
+
+To get a better feeling of which objects are allowed under the above ruless, we will go through some examples:
 
 ```lua
+-- create a channel for data transmission
 local channel = love.thread.newChannel()
 
 channel:push("str") -- `string`: ALLOWED
@@ -449,6 +488,7 @@ channel:push({
     }
 })-- table with only `number`, `love.Object`, `boolean`, `table`: ALLOWED
 
+-- create an OOP-style object
 local object = {}
 object.name = "foo"
 function object:initialize()  
@@ -457,15 +497,19 @@ end
 channel:push(object) -- DISALLOWED: table contains `function`
 ```
 
-Hopefully this elucidates these rules. Messages can be any of the plain data types, or a table of any of the plain data types, or a table of a table of the plain data types, etc.
+Hopefully this elucidates these rules. In summary, message can be any of the plain data types, or a table that only contains plain data types, or tables that only contain plain data types, and so on, recursively.
 
-Let's go through some edge cases that may not be immediately obvious.
+Let's go through some edge cases that may not be immediately obvious:
 
 ```lua
+-- create a `love.Thread`
 local thread = love.thread.newThread("worker.lua")
+
+-- create two `love.Channel`
 local main2worker = love.thread.newChannel()
 local worker2main = love,thread.newChannel()
 
+-- push all inside a table:
 main2worker:push({
     thread, 
     main2worker, 
@@ -475,29 +519,44 @@ main2worker:push({
 
 This is allowed, as the table only contains love objects, even if those objects are the thread or channel itself.
 
+Another one:
+
 ##### `main.lua`
 ```lua
+-- create an OOP-style type that has a function
 local Type = {}
 Type.name = "Type"
 function Type:initialize()
     -- ...
 end
 
-local object = setmetatable({
-    name = "Classic Object"
+-- create an empty table, it does not have any functions
+local object = {}
+
+-- set the objects metatable to the type
+setmetatable({
+    name = "Object"
 }, {
     __index = Type
 })
 
+object:initialize() -- works now
+
+-- print object's type from main
 print("main says type is ", getmetatable(object).__index)
+
+-- push it to a channel
 love.thread.getChannel("main2worker"):push(object)
 ```
 
-This is the typical paradigm used by lua OOP object system, the `__index` metamethod is set to the type table. Is this allowed to be a message?
+This is the typical paradigm used by Lua OOP-style object system. The `__index` metamethod is set to the type table. Is this allowed to be a message?
 
 ##### `worker.lua`
 ```lua
+-- ALLOWED: object can be send and received
 local object = love.thread.getChannel("main2worker"):demand()
+
+-- print object's from worker
 print("worker says type is ", getmetatable(object).__index.name)
 ```
 ```
@@ -506,44 +565,64 @@ Error in Thread error (Thread: 0x01c928a3be70)
 worker.lua:2: attempt to index a nil value
 ```
 
-It is allowed to be send, but we get a worker-side error. `push` stripped the object metatable, meaning, in the workers program, `getmetatable` returned `nil`, and thus trying to access `__index` throws the above error. **Metatables are stripped upon sending**. And even if it was send, `__index` in main points to the global `Type`, also in main, which does not exist in the worker.
+It is allowed to be send, but we do get a worker-side error in the last line when trying to access the objects metatable we realize `push` stripped it, so `initialize` is `nil`, causing the above error. **Metatables are stripped upon sending**. 
 
 > [!CAUTION]
-> Any `love.Object` is sent **by-reference**, so both the main and worker have access to the same cpp-side object. Any other kind of data is sent **by-value**, meaning it will be deep-copied automatically, we can only reference the same objects in both main and any worker if it was created using `new\*` functions provided by a love module.
+> Any `love.Object` is sent **by-reference**, so both the main and worker have access to the same C++-side object (LÖVE uses C++ internally). Any other kind of data is sent **by-value**, meaning it will be **deep-copied** automatically. We can only reference the same object in memory in both main and any worker if it was specifically created using a LÖVE function, such as `love.data.newImageData`.
 
-Of course, if `object` had any kind of member functions like this
+## 2.3 Common Use Cases for `Thread`
 
-```lua
-local object = setmetatable({
-    name = "Classic Object",
-    method = function() -- member function
-        -- ...
-    end
-}, {
-    __index = Type
-})
-```
+Not allowing functions, metatables, not sharing any scope with main, and entire modules like `love.graphics` and `love.window` being unavaiable to use imposes heavy limitations on what situations threads are actually useful for. What are they good for then? Valid and recommended usage cases of threads include the following:
 
-This is not allowed, as it is a table that contains a function.
++ **isolating a process inside a worker**, making it impossible to crash main. For example reading a user-supplied file, or requesting a resource using `http`
++ **running a process at a higher refresh rate than main**. For example at 240Hz (240 times per second), instead of usual vsync'd 60Hz (60 times per second, at 60fps). This is commonly required for things like music playback. Workers can run at any refresh rate they want.
++ **distributing a large number of small tasks to multpile workers [in parallel](<https://en.wikipedia.org/wiki/Embarrassingly_parallel>)**
 
-Not allowing functions, not sharing any scope with main, and entire modules like `love.graphics` and `love.window` being unavaiable imposes heavy limitations on the kind of application we can use using threading for. What is it actually good for then? Usage cases of threads include the following:
+This latter usecase can give huge performance gains if implemented well. For example, when loading a large number of image or sound files, we can distribute them among 8 threads. This distribution happens by sending a message to any worker currently not doing anything else. This message contains information on file to load. Any free worker can pick up that message, load that file, then send the loaded `SoundData`, `ByteData`, or `ImageData` back to main. We remember that  `love.graphics.newImage` and can **not** be called in a worker to load a texture. 
+In main, after having send the message to request the data, we check every frame if any of the requested data has arrived yet. We do not block and sleep until data is received, we simply check every frame, going "is it there yet?" using `channel:pop`. If this call returns nil, no data is ready yet. 
+ Since we distribute the tasks of loading a large number of separate data among 8 threads, the time until that data is done loading and main has received it is about 8 times less than if we loaded all that data in main. If the user has a big CPU with 16 cores, it could be up to 16 times faster! Usually very high thread counts `>8` come with deminishing returns, and are not recommend. We can check the actual number of cores a users CPU has using `love.system.getProcessorCount`.
 
-+ isolating a process inside a worker, making it impossible to crash main, for example reading a user supplied file, or requesting a resource using https.
-+ running a process at a higher refresh rate than main, for example 240Hz instead of the vsync'd 60Hz. This is common for music playback, as workers can run at any refresh rate they want.
-+ distributing a large number of small tasks and working through them [in parallel](<https://en.wikipedia.org/wiki/Embarrassingly_parallel>).
+Even if it is not exactly 8 times faster, it will stil be a many-fold increase in performance. This is the power of threads, doing a large number of small tasks very fast.
 
-The latter can give huge performance gains. For example, when loading a large number of image or sound files, we can distribute them among 8 threads by sending a message for each file to load, have any of the workers pick up that message and load a file, then send the loaded `SoundData` or `ImageData` (remember that `Image` is in `love.graphics` and can thus **not** be loaded in a worker) back to main. In main, we then check every update cycle if all data is arrived yet, not blocked but still waiting for the workers to finish. This means we can load data about 8 times faster. If the user has a big CPU with 16 cores, it could be up to 16 times faster, though with higher thread counts there are somewhat diminishing returns. Either way, it is a many-fold increase in performance.
-
-We will implement this last case as the conclusion to this chapter. The message passing system using `Channel` we used so far is perfectly suited to implement what is called a [thread pool](<https://en.wikipedia.org/wiki/Thread_pool>) that achieves the "do many tiny tasks in parallel" elegantly.
+The "sending data to any available thread" architecture will be implemented as the conclusion to this chapter. The message passing system using `Channel` `pop` and `demand` is perfectly suited to implement what is called a [thread pool](<https://en.wikipedia.org/wiki/Thread_pool>). This is the object that achieves "send a small task to any non-busy thread" automatically, meaning all the programmer has to do is simply request tasks, then check if they are done periodically.
 
 ## 3.0 A Practical Example
 
-Our task is the following: we want to create N threads, send a number of requests to these threads, have any thread that is currently unoccupied pick up the tasks, load the data, then send a response back to main to deliver the data. 
+Our goal is the following: we want to create `N` threads and start them. We then send a number of requests to these threads using `Channel` messages. Any thread that is currently not doing a task should pick up the message, start the task, load the data (though it can be any task unrelated to `love.graphics`), then send a response message back to main. This response contains the loaded data. Main will then check which data has arrived each frame, after which it can be treated just as one would using LÖVE fully synchronously.
 
-First, we need to decide on message formats, as they need to be the same in both main and any worker. It's best to use tables with a `type` field for messages. We will have the following message types
+Since messages are crucial to our architecture, we need to decide on a number of **message types**. This list of types needs to be known to both main and all workers. 
+
+All messages will have the following form
+
+```lua
+local message = {
+    type = MessageType.EXAMPLE_MESSAGE,
+    -- additional data here
+}
+```
+
+We declare the following message types, where the comments document what the "additional data" is for a message with that `type`. For example
+
+```lua
+-- worker -> main: error occurred during loading
+ERROR = "ERROR" --[[
+    type : MessageType,
+    id : Number
+    error : String
+]]
+```
+
+Means this message will be sent from a worker to main, and it always has the following members:
+
+```lua
+channel:push({
+    type = MesageType.ERROR, -- "ERROR"
+    id = 32,
+    error = "Example Error Message"
+})
+```
 
 ##### `message_type.lua`
-
 ```lua
 --- @enum MessageTypes
 local MessageType = {
@@ -583,30 +662,7 @@ local MessageType = {
 return MessageType
 ```
 
-Where the code comments show what kind of format the message will have. For example
-
-```lua
--- worker -> main: error occurred during loading
-ERROR = "ERROR" --[[
-    type : MessageType,
-    id : Number
-    error : String
-]]
-```
-
-Means this message will be sent from a worker to main, and it has the following format
-
-```lua
-channel:push({
-    type = MesageType.ERROR, -- "ERROR"
-    id = 32,
-    error = "Example Error Message"
-})
-```
-
----
-
-With the message formats settled, let's implement the main-side of the thread pool:
+With the message formats settled, following is a full implementation of a `ThreadPool`. This code is quite complex, readers to go through it multiple times over to study it. If that is an unattractive option, we can simply just copy-paste this thread pool into any project. We can customize it by adding custom message types and message handlers, allowing this architecture to be used in any project.
 
 #### `thread_pool.lua`
 ```lua
@@ -795,7 +851,7 @@ worker2main:push({
 return -- exit the worker
 ```
 
-Where `pcall` is used to safely call `love.sound.newSoundData`, which could error.
+Where `pcall` is used to safely call `love.sound.newSoundData`, which could error. It is important to make sure no function in a worker can ever actually error and halt the workers execution.
 
 Let's try our thread pool out:
 
@@ -837,82 +893,86 @@ love.update = function(dt)
 end
 ```
 
-This is a fully functional thread pool which can crunch through thousands of audio files in seconds, even though it is only about 150 lines, thanks to the limitations and simplicity of `love.Thread` and `love.Channel`. It is easy to extend this thread pool, for example by adding more message types, or by changing the callback of what exactly `"REQUEST"` triggers in `thread_pool_worker.lua`.
+We see that this a fully functional thread pool that can crunch through thousands of audio files in seconds. Even though it is only about 150 lines. It is easy to extend this thread pool by adding more message types, or by changing hat exact behavior is triggered by `"REQUEST"` in `thread_pool_worker.lua`.
 
-Asynchronous programming is an incredibly deep topic, so hopefully we'll have garnered enough knowledge to start exploring more.
+Asynchronous programming is an incredibly deep topic, and we have only touched the surface. Because of it's complexity and proneness to errors, it is one of the most skillful fields in programming. Hopefully this chapter gave use enough knowledge to at least use threads in LÖVE specifically. We can properly learn the entire field by studying threads in another language at a later time.
 
 ---
 
 ### 4.0 Addendum
 
 > [!CAUTION]
-> The following is for users already familiar with asynchronous programming outside of LÖVE.
+> The following is for users already familiar with asynchronous programming *outside of LÖVE*. It will use terms that will not be introduced, they are assumed to be known by any read after this point
 
 ### 4.1 Using a Channel as a Mutex
 
-We can use a `love.Channel` as a [mutex](https://en.wikipedia.org/wiki/Lock_(computer_science)) (also called a "lock" in certain languages) using `performAtomic`, which will use the channels internal mutex that synchronized `pop` and `push`, meaning while `performAtomic` is active, no object can modify the channels or call `performAtomic` in another thread, meaning anything inside the given functions is truly synchronous:
+We can use a `love.Channel` as a [mutex](https://en.wikipedia.org/wiki/Lock_(computer_science)) (also called a "lock" in certain languages) using `performAtomic`. While `performAtomic` is active, no object can call `performAtomic` on the same channel across all threads. Instead, if `performAtomic` on that channel is active, all other threads will block and wait for it to be free, similar to  `demand`. This means, anything inside the function provided to `performAtomic` is truly synchronous:
 
 ```lua
--- in main or worker, we can synchronize for a single function invocation by using a channel like a RAII-style mutex
+-- decalre atomic routine
 local sharedObject = love.image.newImageData( -- ...
 local callback = function(shared) 
-    -- do atomic, synchronized operations here
+    -- do atomic synchronized operations here
     -- all other threads waiting on this channel will block
     shared:setPixel(
         4, 2, -- pixel xy 
         1, 0, 1, 1 -- rgba
     )
+    -- we need to do this, as without it, race conditions will corrupt the image data
 end
 
+-- use channel like a RAII-style mutex:
 local channel = love.thread.getChannel("imagelock")
 channel:performAtomic(callback, sharedObject)
 ```
 
 ### 4.2 Sharing FFI Memory
 
-Threads can share non-lua allocated memory, meaning memory allocated using `ffi` or a C binding. Doing this is highly unsafe, as race conditions apply just as they would in pure C++, and any failure to synchronize memory write/read will result in a hard crash. Nontheless, this technique can be powerful if high levels of data sharing is required, but should be reserve to such a case.
+Threads can share non-lua allocated memory, meaning memory allocated using `FFI` or (a C binding). **Doing this is highly unsafe**. Race conditions apply, any failure to synchronize by using `performAtomic` or a similar technique will result in RAM corruption, a hard crash, or the game fully seizing up. Despite this, this technique can be extremely powerful and performant. Only applications where a large amount of data that would be impractical to deep-copy through `Channel` is required should consider sharing FFI data.
 
-To send over a pointer to the ffi data, we do
+We cannot send a `cdata` object directly. Instead, we **send over a pointer to the FFI data**. We do this like so:
 
+#### `main.lua`
 ```lua
--- in main:
-
 -- allocate shared memory
 local shared = ffi.new("uint8_t[?]", 1024)
 
--- send pointer as integer (ffi objects are disallowed)
+-- cast point to integer, then send it as a number
 main2worker:send(tonumber(ffi.cast("uint32_t", shared)))
 
 -- main can modify memory (race conditions apply, may crash)
-shared[12] = 0x4
+main2worker:performAtomic(function()
+    shared[12] = 0x4
+end)
 ```
+#### `worker.lua`
 ```lua
--- in worker:
-
--- retrieve integer, cast back to shared memory array pointer
+-- retrieve integer, cast back to shared memory pointer
 local shared = ffi.cast("uint8_t[?]", main2worker:demand())
 
 -- worker can modify memory (race conditions apply, may crash)
-shared[12] = 0x5
+main2worker:performAtomic(function()
+    shared[12] = 0x5
+end)
 ```
 
-Where we cast the array pointer to a plain number so we can send it using channels, then cast the plain number back to a pointer to retrieve it worker-side.
+Where we cast the array pointer to a plain number so we can send it using channels, then cast the plain number back to a pointer to reconstruct it it worker-side. Because the pointer points to the exact same address in RAM, both worker and main can modify it now.
 
-The same can also be achieved with LÖVE 12.0's new `ByteData` interface, where `ByteData` is a `love.Object` and can thus be passed by-reference between threads using a channel.
+The same can also be achieved with LÖVE 12.0's `ByteData` interface, where `ByteData` is a `love.Object` and can thus be passed by-reference between threads using `Channel`: 
 
 ```lua
--- using luajit ffi
+-- allocate and send data using LuaJIT FFI:
 local shared = ffi.new("uint8_t[?]", 1024) -- allocate 1024 bytes
 shared[12] = 0x4 -- takes integer index, not byte offset
 channel:push(shared) -- will error
 
--- using love 12.0 ByteData
+-- allocate and send data using `love.ByteData`:
 local shared = love.data.newBytedata(ffi.sizeof("uint8_t") * 1024)
 shared:setUInt8(8 * 12, 0x4) -- `set*` takes byte offset, not index
 channel:push(shared) -- will work
 ```
 
-Where `ByteData`s new `set*` methods have no synchronization, race conditions apply and a mutex should be used when modifying them.
+Where `ByteData`s new `set*` methods have no synchronization, race conditions apply and a mutex should be used when modifying them. We can also retreive a regular FFI pointer from the love `ByteData` instance using `getFFIPointer`.
 
 
 
