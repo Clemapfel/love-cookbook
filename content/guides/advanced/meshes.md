@@ -6,20 +6,20 @@ date: 2026-07-14
 
 # Meshes
 
-This chapter will cover **Meshes**, which are a central concept in graphics programming, as they are what is used to display any geometry on screen. While usually shunned by beginners thanks to LÖVEs high level of abstraction, meshes are actually used internally by LÖVE for displaying any kind of graphics, including for `love.graphics.rectangle`, `love.graphics.circle`, `love.graphics.polygon`, and `draw`ing `Images`, `SpriteBatche`s, `ParticleSystem`s, etc.
+This chapter will cover **Meshes**, which are a central concept in graphics programming. They are what is used to display any geometry on screen. While usually shunned by beginners deemed unnecessary due  the high level of abstraction LÖVE offers when drawing to the screen, meshes are actually used internally by LÖVE for literally all drawing. This includes for `love.graphics.rectangle`, `love.graphics.circle`, `love.graphics.polygon`, and `draw`ing `Images`, `SpriteBatche`s, `ParticleSystem`s, etc. -- all are actually powered my meshes!
 
-By overcoming the complexity and mastering meshes, we can extend LÖVEs graphical capability significantly. It allows use to render shapes not possible with any other of LÖVEs existing high-level API. Using geometry instancing, we can even achieve drawing performance even better than `SpriteBatch` or `love.graphics.circle`, despite LÖVE being known for it's extremely fast drawing routines.
+By overcoming complexity and mastering meshes, we can extend LÖVEs graphical capability significantly. For example, it allows us to render shapes not possible with any other of LÖVEs existing API. Using *geometry instancing*, we can even achieve drawing performance equal to or even better than `SpriteBatch` or `love.graphics.circle`. This is despite LÖVE being known for it's extremely fast drawing.
 
 #### In this chapter we will learn:
 
 + Why and when to use meshes
-+ What vertices, edges, andmeshes are
-+ What vertex attributes, texture coordinates are
-+ What a mesh draw mode is
-+ What graphics buffer usage means
-+ How to access and modify the vertex and index buffer of a mesh
++ What *vertices*, *edges*, *meshes* are
++ What vertex attributes, texture coordinates, texture bindings are
++ What a meshs `DrawMode` is
++ What graphics `BufferUsage` means
++ How to access and modify vertex and index buffer of a mesh
 + How to use geometry instancing
-+ How to create a graphics buffer, and upload to it using Lua tables or C memory
++ How to create a graphics buffer and upload to them using Lua tables or extremely fast C memory
 
 ---
 
@@ -1468,20 +1468,15 @@ love.load = function()
         -- convert mesh to a buffer for love.update
         perInstanceDataBuffer = perInstanceDataMesh:getVertexBuffer()
     elseif BUFFER_MODE == BUFFER_MODE_USE_STORAGE_BUFFER then
-        -- allocate the buffer directly
+        -- TODO upload the storage buffer
         perInstanceDataBuffer = love.graphics.newBuffer(
             perInstanceFormat, -- buffer format
             initialData,    -- initial buffer data
             { shaderstorage = true } -- declare as storage buffer
         )
 
-        local dummy = {}
-        for _ = 1, perInstanceDataBuffer:getElementCount() do table.insert(dummy, {}) end
-
-        local mesh = love.graphics.newMesh(perInstanceDataBuffer:getFormat(), {{}}, "triangles", "dynamic")
-        mesh:setVertices(love.graphics.readbackBuffer(perInstanceDataBuffer))
-
     elseif BUFFER_MODE == BUFFER_MODE_USE_TEXEL_BUFFER then
+        -- TODO upload the texel buffer
         perInstanceDataBuffer = love.graphics.newBuffer(
             perInstanceFormat,
             initialData,

@@ -16,8 +16,8 @@ This chapter will go over **stencils**, which open up a number of advanced drawi
 
 + What a stencil buffer is
 + When to use stencils
-+ Wow to use `setStencilMode`, the high level API
-+ Wow to use `setStencilState`, the low level API
++ How to use `setStencilMode`
++ How to use `setStencilState`
 
 ## Table of Contents
 

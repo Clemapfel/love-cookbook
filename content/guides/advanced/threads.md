@@ -10,13 +10,13 @@ Because Lua does not support threading in any way, LÖVE implements internally. 
 
 #### In this chapter we will learn:
 
-+ what a thread is
-+ nomenclature around threads such as *concurrency*, *asynchronicity*, *main*, *worker*, *channel*, and *synchronization*
-+ why concurrency is non-deterministic
-+ how to create a thread
-+ how to transmit data between threads
-+ how to implement a fully functioning thread pool
-+ how to safely close a thread
++ What a thread is
++ Nomenclature around threads such as *concurrency*, *asynchronicity*, *main*, *worker*, *channel*, and *synchronization*
++ Why concurrency is non-deterministic
++ How to create a thread
++ How to transmit data between threads
++ How to implement a fully functioning thread pool
++ How to safely close a thread
 
 ---
 
