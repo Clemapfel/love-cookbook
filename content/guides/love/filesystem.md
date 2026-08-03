@@ -88,7 +88,7 @@ For example, we could check the mods folder for any files inside:
 ```lua
 local mod1 = love.filesystem.write('mods/mod1.lua', 'print("Hello World!")')
 local files = love.filesystem.getDirectoryItems('mods')
-for f=#files do
+for f=1, #files do
   print(files[f]) -- will print 'mod1.txt', note: without the /mods/ path!
 end
 ```
@@ -97,7 +97,7 @@ If you was running through a large directory with nested folders, you can use {%
 ```lua
 function readFiles(path)
   local files = love.filesystem.getDirectoryItems(path)
-  for f=1,#files do
+  for f=1, #files do
     local info = love.filesystem.getInfo(path .. '/' .. files[f]) -- note we need to append the path too
     print(files[f], info.type) -- i.e. 'mod1.lua', 'file'
   end

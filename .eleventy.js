@@ -179,7 +179,7 @@ iframe_${id}.contentWindow.postMessage({readDir: "${readDir}", files: "${files}"
     });
 
     return {
-        pathPrefix: "/love-cookbook",
+        pathPrefix: "/",
         dir: {
             input: "content",
             includes: "../templates",
