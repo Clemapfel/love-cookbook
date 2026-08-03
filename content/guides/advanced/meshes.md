@@ -433,7 +433,7 @@ The second argument of `love.graphics.newMesh` is called the **draw mode**. It i
 > [!TIP]
 > A computer has two types of memory, **memory on the CPU is called RAM**, memory on the graphics card is calld **VRAM**. We will als use the terms *CPU-side* to refer to anything in RAM, and *GPU-side*  to refer to anything in VRAM
 
-It's best to visualize this process of how the tris are construct GPU-side visually. To do this, we meete our two new example meshes for this section:
+It's best to visualize this process of how the tris are construct GPU-side visually. To do this, we meet our two new example meshes for this section:
 
 A **heptagon**, a 7-sided regular polygon:
 
