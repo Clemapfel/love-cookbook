@@ -15,7 +15,7 @@ By overcoming complexity and mastering meshes, we can extend LÖVEs graphical ca
 + Why and when to use meshes
 + What *vertices*, *edges*, *meshes* are
 + What vertex attributes, texture coordinates, texture bindings are
-+ What a meshs `DrawMode` is
++ What a mesh's `DrawMode` is
 + What graphics `BufferUsage` means
 + How to access and modify vertex and index buffer of a mesh
 + How to use geometry instancing
@@ -245,7 +245,7 @@ While 3D in this example, the technique used to render tens of thousands of blad
 
 #### 1.0.4 Drawing 3D Objects
 
-While not introduced in this chapter, LÖVE does have the capability to draw true 3D. Only meshs - no other object - can represent a true 3D shape such as a sphere or model of a cat. Meshes are integral to any LÖVE project wanting to implement true 3D.
+While not introduced in this chapter, LÖVE does have the capability to draw true 3D. Only meshes - no other object - can represent a true 3D shape such as a sphere or model of a cat. Meshes are integral to any LÖVE project wanting to implement true 3D.
 
 ## 1.1 Glossary: Vertices, Edges, Tris, Meshes
 
